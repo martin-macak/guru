@@ -49,11 +49,12 @@ class GuruClient:
         return await self._get(path)
 
     async def get_document(self, file_path: str) -> dict:
-        encoded = quote(file_path, safe="")
+        # Preserve slashes (path separators) but encode other special chars
+        encoded = quote(file_path, safe="/")
         return await self._get(f"/documents/{encoded}")
 
     async def get_section(self, file_path: str, header_path: str) -> dict:
-        encoded_fp = quote(file_path, safe="")
+        encoded_fp = quote(file_path, safe="/")
         encoded_hp = quote(header_path, safe="")
         return await self._get(f"/documents/{encoded_fp}/sections/{encoded_hp}")
 
