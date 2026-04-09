@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
 
-from behave import given, when, then
-
+from behave import given, then, when
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -112,7 +110,7 @@ def step_list_and_pick(context, fragment):
             context.picked_path = line.strip().split(" ")[0]
             return
 
-    assert False, f"'{fragment}' not found in list output:\n{out}"
+    raise AssertionError(f"'{fragment}' not found in list output:\n{out}")
 
 
 @when('I get the document containing "{fragment}"')
@@ -126,9 +124,7 @@ def step_get_doc_containing(context, fragment):
         if fragment in line:
             doc_path = line.strip().split(" ")[0]
             break
-    assert doc_path is not None, (
-        f"No document containing '{fragment}' in list output:\n{list_out}"
-    )
+    assert doc_path is not None, f"No document containing '{fragment}' in list output:\n{list_out}"
 
     code, out = _run_cli(["doc", doc_path], cwd=context.project_dir)
     context.last_exit_code = code
@@ -149,9 +145,7 @@ def step_command_succeeds(context):
 
 @then('the output contains "{text}"')
 def step_output_contains(context, text):
-    assert text in context.last_output, (
-        f"Expected '{text}' in output:\n{context.last_output}"
-    )
+    assert text in context.last_output, f"Expected '{text}' in output:\n{context.last_output}"
 
 
 @then('the output does not contain "{text}"')
@@ -188,8 +182,7 @@ def step_first_result_contains_alternatives(context, alternatives):
 
     matched = [kw for kw in keywords if kw.lower() in first_text]
     assert matched, (
-        f"First result does not contain any of {keywords}.\n"
-        f"First result text:\n{first_text}"
+        f"First result does not contain any of {keywords}.\nFirst result text:\n{first_text}"
     )
 
 
@@ -216,13 +209,9 @@ def step_search_results_contain_label(context, label):
             file_path = line.replace("File:", "").strip()
             break
 
-    assert file_path is not None, (
-        f"No file path found in search output:\n{context.last_output}"
-    )
+    assert file_path is not None, f"No file path found in search output:\n{context.last_output}"
 
     # Get the document JSON and check label
     code, out = _run_cli(["doc", file_path], cwd=context.project_dir)
     assert code == 0, f"Failed to get doc {file_path}:\n{out}"
-    assert label in out, (
-        f"Label '{label}' not found in document for {file_path}:\n{out}"
-    )
+    assert label in out, f"Label '{label}' not found in document for {file_path}:\n{out}"

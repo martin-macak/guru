@@ -19,7 +19,5 @@ def find_guru_root(start: Path) -> Path:
             return current
         parent = current.parent
         if parent == current:
-            raise GuruNotFoundError(
-                "Not a guru project. Run `guru init` first."
-            )
+            raise GuruNotFoundError("Not a guru project. Run `guru init` first.")
         current = parent

@@ -10,8 +10,8 @@ from guru_server.app import create_app
 from guru_server.config import resolve_config
 from guru_server.embedding import OllamaEmbedder
 from guru_server.startup import (
-    check_ollama_installed,
     check_model_available,
+    check_ollama_installed,
     start_ollama_serve,
     stop_ollama_serve,
 )

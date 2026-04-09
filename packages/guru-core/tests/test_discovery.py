@@ -1,9 +1,6 @@
-import os
-from pathlib import Path
-
 import pytest
 
-from guru_core.discovery import find_guru_root, GuruNotFoundError
+from guru_core.discovery import GuruNotFoundError, find_guru_root
 
 
 def test_find_guru_root_in_current_dir(tmp_path):

@@ -53,9 +53,7 @@ def generate_index(wheels_dir: Path, output_dir: Path) -> None:
         root_links.append(f'<a href="{name}/">{name}</a>')
 
     (output_dir / "index.html").write_text(
-        "<!DOCTYPE html>\n<html><body>\n"
-        + "\n".join(root_links)
-        + "\n</body></html>\n"
+        "<!DOCTYPE html>\n<html><body>\n" + "\n".join(root_links) + "\n</body></html>\n"
     )
 
     # Generate per-package index
@@ -66,9 +64,7 @@ def generate_index(wheels_dir: Path, output_dir: Path) -> None:
         for whl in sorted(wheels):
             links.append(f'<a href="../../wheels/{whl}">{whl}</a>')
         (pkg_dir / "index.html").write_text(
-            "<!DOCTYPE html>\n<html><body>\n"
-            + "\n".join(links)
-            + "\n</body></html>\n"
+            "<!DOCTYPE html>\n<html><body>\n" + "\n".join(links) + "\n</body></html>\n"
         )
 
 

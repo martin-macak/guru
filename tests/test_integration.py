@@ -1,4 +1,5 @@
 """Integration smoke test: init -> index -> search without real Ollama."""
+
 import json
 
 import pytest
@@ -19,9 +20,13 @@ def project(tmp_path):
 
     # Config
     config = tmp_path / "guru.json"
-    config.write_text(json.dumps([
-        {"ruleName": "default", "match": {"glob": "**/*.md"}},
-    ]))
+    config.write_text(
+        json.dumps(
+            [
+                {"ruleName": "default", "match": {"glob": "**/*.md"}},
+            ]
+        )
+    )
 
     # Sample docs
     docs = tmp_path / "docs"

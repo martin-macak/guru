@@ -1,5 +1,4 @@
 import httpx
-import pytest
 
 from guru_server.embedding import OllamaEmbedder
 
@@ -15,6 +14,7 @@ class TestOllamaEmbedder:
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
         import asyncio
+
         embedder = OllamaEmbedder(base_url="http://localhost:11434")
         result = asyncio.run(embedder.embed("hello world"))
         assert len(result) == 768
@@ -32,6 +32,7 @@ class TestOllamaEmbedder:
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
         import asyncio
+
         embedder = OllamaEmbedder(base_url="http://localhost:11434")
         results = asyncio.run(embedder.embed_batch(["hello", "world"]))
         assert len(results) == 2

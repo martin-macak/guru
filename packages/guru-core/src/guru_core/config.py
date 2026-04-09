@@ -19,9 +19,7 @@ def load_rules(path: Path) -> list[Rule] | None:
     return [Rule(**item) for item in data]
 
 
-def merge_rules(
-    global_rules: list[Rule], local_rules: list[Rule]
-) -> list[Rule]:
+def merge_rules(global_rules: list[Rule], local_rules: list[Rule]) -> list[Rule]:
     """Merge local rules over global rules.
 
     Rules with the same rule_name in local fully replace the global version.

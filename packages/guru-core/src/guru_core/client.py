@@ -33,14 +33,15 @@ class GuruClient:
     async def status(self) -> dict:
         return await self._get("/status")
 
-    async def search(
-        self, query: str, n_results: int = 10, filters: dict | None = None
-    ) -> list:
-        return await self._post("/search", {
-            "query": query,
-            "n_results": n_results,
-            "filters": filters or {},
-        })
+    async def search(self, query: str, n_results: int = 10, filters: dict | None = None) -> list:
+        return await self._post(
+            "/search",
+            {
+                "query": query,
+                "n_results": n_results,
+                "filters": filters or {},
+            },
+        )
 
     async def list_documents(self, filters: dict | None = None) -> list:
         path = "/documents"

@@ -1,6 +1,9 @@
 from __future__ import annotations
+
 import json
+
 import lancedb
+
 from guru_server.ingestion.base import Chunk
 
 VECTOR_DIM = 768
@@ -38,20 +41,22 @@ class VectorStore:
                     f"Vector at index {i} has dimension {len(vector)}, expected {VECTOR_DIM}"
                 )
         records = []
-        for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
-            records.append({
-                "vector": vector,
-                "content": chunk.content,
-                "file_path": chunk.file_path,
-                "header_breadcrumb": chunk.header_breadcrumb,
-                "chunk_level": chunk.chunk_level,
-                "chunk_index": i,
-                "frontmatter": json.dumps(chunk.frontmatter),
-                "labels": json.dumps(chunk.labels),
-                "chunk_id": chunk.chunk_id or "",
-                "parent_chunk_id": chunk.parent_chunk_id or "",
-                "content_type": chunk.content_type,
-            })
+        for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
+            records.append(
+                {
+                    "vector": vector,
+                    "content": chunk.content,
+                    "file_path": chunk.file_path,
+                    "header_breadcrumb": chunk.header_breadcrumb,
+                    "chunk_level": chunk.chunk_level,
+                    "chunk_index": i,
+                    "frontmatter": json.dumps(chunk.frontmatter),
+                    "labels": json.dumps(chunk.labels),
+                    "chunk_id": chunk.chunk_id or "",
+                    "parent_chunk_id": chunk.parent_chunk_id or "",
+                    "content_type": chunk.content_type,
+                }
+            )
         table = self._get_table()
         if table is None:
             self._table = self.db.create_table(TABLE_NAME, data=records)
@@ -69,11 +74,7 @@ class VectorStore:
         table = self._get_table()
         if table is None:
             return 0
-        rows = (
-            table.search(None)
-            .select(["file_path"])
-            .to_list()
-        )
+        rows = table.search(None).select(["file_path"]).to_list()
         return len({r["file_path"] for r in rows})
 
     def delete_file(self, file_path: str) -> None:
@@ -91,7 +92,9 @@ class VectorStore:
         escaped = ", ".join(f"'{_escape_sql_string(fp)}'" for fp in file_paths)
         table.delete(f"file_path IN ({escaped})")
 
-    def search(self, query_vector: list[float], n_results: int = 10, where: str | None = None) -> list[dict]:
+    def search(
+        self, query_vector: list[float], n_results: int = 10, where: str | None = None
+    ) -> list[dict]:
         table = self._get_table()
         if table is None:
             return []
@@ -99,30 +102,35 @@ class VectorStore:
         if where:
             query = query.where(where)
         results = query.to_list()
-        return [{"content": r["content"], "file_path": r["file_path"],
-                 "header_breadcrumb": r["header_breadcrumb"], "chunk_level": r["chunk_level"],
-                 "labels": _parse_json_list(r["labels"]),
-                 "score": 1.0 / (1.0 + r.get("_distance", 0.0))} for r in results]
+        return [
+            {
+                "content": r["content"],
+                "file_path": r["file_path"],
+                "header_breadcrumb": r["header_breadcrumb"],
+                "chunk_level": r["chunk_level"],
+                "labels": _parse_json_list(r["labels"]),
+                "score": 1.0 / (1.0 + r.get("_distance", 0.0)),
+            }
+            for r in results
+        ]
 
     def list_documents(self) -> list[dict]:
         table = self._get_table()
         if table is None:
             return []
         # Project only needed columns to avoid loading large vector data
-        df = (
-            table.search(None)
-            .select(["file_path", "frontmatter", "labels"])
-            .to_pandas()
-        )
+        df = table.search(None).select(["file_path", "frontmatter", "labels"]).to_pandas()
         docs = []
         for file_path, group in df.groupby("file_path"):
             first_row = group.iloc[0]
-            docs.append({
-                "file_path": file_path,
-                "frontmatter": _parse_json_dict(first_row["frontmatter"]),
-                "labels": _parse_json_list(first_row["labels"]),
-                "chunk_count": len(group),
-            })
+            docs.append(
+                {
+                    "file_path": file_path,
+                    "frontmatter": _parse_json_dict(first_row["frontmatter"]),
+                    "labels": _parse_json_list(first_row["labels"]),
+                    "chunk_count": len(group),
+                }
+            )
         return docs
 
     def get_document(self, file_path: str) -> dict | None:

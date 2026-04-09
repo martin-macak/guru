@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
-from guru_core.types import Rule, MatchConfig
+from guru_core.types import MatchConfig, Rule
 from guru_server.config import DEFAULT_RULES, load_rules, merge_rules, resolve_config
-
 
 # ---------------------------------------------------------------------------
 # DEFAULT_RULES
 # ---------------------------------------------------------------------------
+
 
 def test_default_rules_has_one_rule():
     assert len(DEFAULT_RULES) == 1
@@ -29,11 +27,10 @@ def test_default_rules_glob():
 # load_rules
 # ---------------------------------------------------------------------------
 
+
 def test_load_rules_from_json(tmp_path: Path):
     config_file = tmp_path / "rules.json"
-    config_file.write_text(json.dumps([
-        {"ruleName": "docs", "match": {"glob": "docs/**/*.md"}}
-    ]))
+    config_file.write_text(json.dumps([{"ruleName": "docs", "match": {"glob": "docs/**/*.md"}}]))
     rules = load_rules(config_file)
     assert rules is not None
     assert len(rules) == 1
@@ -50,6 +47,7 @@ def test_load_rules_returns_none_for_missing_file(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # merge_rules
 # ---------------------------------------------------------------------------
+
 
 def test_merge_rules_local_overrides_global():
     global_rules = [Rule(rule_name="default", match=MatchConfig(glob="**/*.md"))]
@@ -72,6 +70,7 @@ def test_merge_rules_local_appends_new_rules():
 # resolve_config
 # ---------------------------------------------------------------------------
 
+
 def test_resolve_config_prefers_guru_json(tmp_path: Path):
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -79,15 +78,15 @@ def test_resolve_config_prefers_guru_json(tmp_path: Path):
     global_dir.mkdir()
 
     # Create guru.json (preferred)
-    (project_root / "guru.json").write_text(json.dumps([
-        {"ruleName": "preferred", "match": {"glob": "preferred/**"}}
-    ]))
+    (project_root / "guru.json").write_text(
+        json.dumps([{"ruleName": "preferred", "match": {"glob": "preferred/**"}}])
+    )
     # Also create .guru/config.json (fallback, should be ignored)
     guru_dir = project_root / ".guru"
     guru_dir.mkdir()
-    (guru_dir / "config.json").write_text(json.dumps([
-        {"ruleName": "fallback", "match": {"glob": "fallback/**"}}
-    ]))
+    (guru_dir / "config.json").write_text(
+        json.dumps([{"ruleName": "fallback", "match": {"glob": "fallback/**"}}])
+    )
 
     rules = resolve_config(project_root, global_config_dir=global_dir)
     names = {r.rule_name for r in rules}
@@ -103,9 +102,9 @@ def test_resolve_config_falls_back_to_guru_config_json(tmp_path: Path):
 
     guru_dir = project_root / ".guru"
     guru_dir.mkdir()
-    (guru_dir / "config.json").write_text(json.dumps([
-        {"ruleName": "fallback", "match": {"glob": "fallback/**"}}
-    ]))
+    (guru_dir / "config.json").write_text(
+        json.dumps([{"ruleName": "fallback", "match": {"glob": "fallback/**"}}])
+    )
 
     rules = resolve_config(project_root, global_config_dir=global_dir)
     names = {r.rule_name for r in rules}
@@ -118,12 +117,12 @@ def test_resolve_config_merges_with_global(tmp_path: Path):
     global_dir = tmp_path / "global"
     global_dir.mkdir()
 
-    (global_dir / "config.json").write_text(json.dumps([
-        {"ruleName": "global-rule", "match": {"glob": "global/**"}}
-    ]))
-    (project_root / "guru.json").write_text(json.dumps([
-        {"ruleName": "local-rule", "match": {"glob": "local/**"}}
-    ]))
+    (global_dir / "config.json").write_text(
+        json.dumps([{"ruleName": "global-rule", "match": {"glob": "global/**"}}])
+    )
+    (project_root / "guru.json").write_text(
+        json.dumps([{"ruleName": "local-rule", "match": {"glob": "local/**"}}])
+    )
 
     rules = resolve_config(project_root, global_config_dir=global_dir)
     names = {r.rule_name for r in rules}

@@ -17,7 +17,6 @@ from guru_server.config import resolve_config
 from guru_server.embedding import OllamaEmbedder
 from guru_server.storage import VectorStore
 
-
 # ---------------------------------------------------------------------------
 # Project directory builders
 # ---------------------------------------------------------------------------
@@ -331,9 +330,7 @@ def before_feature(context, feature):
         context.project_dir = _create_standard_project()
         context.embedder = _make_fake_embedder()
 
-    context.server, context.server_thread = _start_server(
-        context.project_dir, context.embedder
-    )
+    context.server, context.server_thread = _start_server(context.project_dir, context.embedder)
 
 
 def after_feature(context, feature):

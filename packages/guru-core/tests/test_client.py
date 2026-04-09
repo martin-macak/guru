@@ -1,12 +1,11 @@
-import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 
+from guru_core.autostart import ServerStartError, _health_check, ensure_server
 from guru_core.client import GuruClient
-from guru_core.autostart import ensure_server, ServerStartError, _health_check
 
 
 class TestGuruClient:
@@ -26,14 +25,17 @@ class TestGuruClient:
 
     @pytest.mark.asyncio
     async def test_status(self, guru_root, monkeypatch):
-        fake_response = httpx.Response(200, json={
-            "server_running": True,
-            "document_count": 10,
-            "chunk_count": 50,
-            "last_indexed": None,
-            "ollama_available": True,
-            "model_loaded": True,
-        })
+        fake_response = httpx.Response(
+            200,
+            json={
+                "server_running": True,
+                "document_count": 10,
+                "chunk_count": 50,
+                "last_indexed": None,
+                "ollama_available": True,
+                "model_loaded": True,
+            },
+        )
 
         async def fake_get(self, url, **kwargs):
             return fake_response
@@ -47,10 +49,19 @@ class TestGuruClient:
 
     @pytest.mark.asyncio
     async def test_search(self, guru_root, monkeypatch):
-        fake_response = httpx.Response(200, json=[
-            {"file_path": "auth.md", "content": "OAuth", "score": 0.9,
-             "header_breadcrumb": "Auth", "chunk_level": 2, "labels": "[]"},
-        ])
+        fake_response = httpx.Response(
+            200,
+            json=[
+                {
+                    "file_path": "auth.md",
+                    "content": "OAuth",
+                    "score": 0.9,
+                    "header_breadcrumb": "Auth",
+                    "chunk_level": 2,
+                    "labels": "[]",
+                },
+            ],
+        )
 
         async def fake_post(self, url, **kwargs):
             return fake_response
@@ -98,6 +109,7 @@ class TestEnsureServer:
         # Mock socket check to succeed after start
         call_count = 0
         original_exists = Path.exists
+
         def fake_exists(self):
             nonlocal call_count
             if self.name == "guru.sock":
@@ -108,9 +120,7 @@ class TestEnsureServer:
         monkeypatch.setattr(Path, "exists", fake_exists)
 
         # Mock health check to succeed once the socket appears
-        monkeypatch.setattr(
-            "guru_core.autostart._health_check", lambda sock_path: None
-        )
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
 
         ensure_server(tmp_path)
         assert not pid_file.exists() or pid_file.read_text() != "99999"
@@ -125,14 +135,20 @@ class TestEnsureServer:
         pid_file.write_text("99999")
 
         # Stale process
-        monkeypatch.setattr("os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
 
         # Mock subprocess
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
 
         # Socket always appears immediately
         original_exists = Path.exists
-        monkeypatch.setattr(Path, "exists", lambda self: True if self.name == "guru.sock" else original_exists(self))
+        monkeypatch.setattr(
+            Path,
+            "exists",
+            lambda self: True if self.name == "guru.sock" else original_exists(self),
+        )
 
         # Health check always fails
         monkeypatch.setattr(
@@ -158,6 +174,7 @@ class TestEnsureServer:
 
     def test_health_check_connection_error(self, tmp_path, monkeypatch):
         """_health_check returns the exception when the connection fails."""
+
         def fake_send(self, request, **kwargs):
             raise httpx.ConnectError("refused")
 

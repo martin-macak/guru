@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -92,5 +91,5 @@ def _health_check(sock_path: str) -> Exception | None:
             resp = client.get("http://localhost/status")
             resp.raise_for_status()
         return None
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return exc

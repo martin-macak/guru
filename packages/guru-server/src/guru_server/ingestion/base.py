@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
 from guru_core.types import Rule
+
 
 @dataclass
 class Chunk:
@@ -16,6 +19,7 @@ class Chunk:
     parent_chunk_id: str | None = None
     chunk_id: str | None = None
     content_type: str = "text"  # "text", "code", "table", "mixed"
+
 
 class DocumentParser(ABC):
     @abstractmethod

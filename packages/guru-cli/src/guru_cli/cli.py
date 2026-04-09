@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
 from importlib.metadata import version as pkg_version
@@ -8,10 +9,9 @@ from pathlib import Path
 
 import click
 
-from guru_core.discovery import find_guru_root, GuruNotFoundError
 from guru_core.autostart import ensure_server
 from guru_core.client import GuruClient
-
+from guru_core.discovery import GuruNotFoundError, find_guru_root
 
 DEFAULT_CONFIG = [
     {"ruleName": "default", "match": {"glob": "**/*.md"}},
@@ -223,13 +223,11 @@ def list_docs():
 @cli.command()
 def config():
     """Show resolved configuration with provenance."""
-    from guru_core.config import load_rules, merge_rules, DEFAULT_RULES
+    from guru_core.config import DEFAULT_RULES, load_rules, merge_rules
 
     guru_root = Path.cwd()
-    try:
+    with contextlib.suppress(GuruNotFoundError):
         guru_root = find_guru_root(Path.cwd())
-    except GuruNotFoundError:
-        pass
 
     global_path = Path.home() / ".config" / "guru" / "config.json"
     local_path = guru_root / "guru.json"

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +11,12 @@ def mock_store():
     store = MagicMock()
     store.chunk_count.return_value = 100
     store.list_documents.return_value = [
-        {"file_path": "specs/auth.md", "frontmatter": {"title": "Auth"}, "labels": ["spec"], "chunk_count": 5},
+        {
+            "file_path": "specs/auth.md",
+            "frontmatter": {"title": "Auth"},
+            "labels": ["spec"],
+            "chunk_count": 5,
+        },
     ]
     store.get_document.return_value = {
         "file_path": "specs/auth.md",
@@ -87,8 +92,18 @@ def test_list_documents(client):
 
 def test_list_documents_with_label_filter(client, mock_store):
     mock_store.list_documents.return_value = [
-        {"file_path": "specs/auth.md", "frontmatter": {"title": "Auth"}, "labels": ["spec"], "chunk_count": 5},
-        {"file_path": "specs/rbac.md", "frontmatter": {"title": "RBAC"}, "labels": ["spec", "security"], "chunk_count": 3},
+        {
+            "file_path": "specs/auth.md",
+            "frontmatter": {"title": "Auth"},
+            "labels": ["spec"],
+            "chunk_count": 5,
+        },
+        {
+            "file_path": "specs/rbac.md",
+            "frontmatter": {"title": "RBAC"},
+            "labels": ["spec", "security"],
+            "chunk_count": 3,
+        },
     ]
     resp = client.get("/documents?labels=security")
     assert resp.status_code == 200
@@ -138,7 +153,9 @@ def test_search(client):
 
 
 def test_search_with_filters(client):
-    resp = client.post("/search", json={"query": "auth", "n_results": 5, "filters": {"labels": "spec"}})
+    resp = client.post(
+        "/search", json={"query": "auth", "n_results": 5, "filters": {"labels": "spec"}}
+    )
     assert resp.status_code == 200
 
 

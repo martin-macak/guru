@@ -26,8 +26,9 @@ help:
 	@echo "  build-index        Build wheels then generate PEP 503 index into dist/simple/"
 	@echo ""
 	@echo "Code quality"
-	@echo "  lint               Check code style (not configured yet)"
-	@echo "  fmt                Format code (not configured yet)"
+	@echo "  lint               Check code style (ruff check)"
+	@echo "  fmt                Auto-fix lint issues and format code"
+	@echo "  format             Alias for fmt"
 	@echo ""
 	@echo "Maintenance"
 	@echo "  clean              Remove dist/, build/, caches, and egg-info directories"
@@ -81,11 +82,13 @@ build-index: build
 
 .PHONY: lint
 lint:
-	@echo "Linting is not configured yet. Add ruff or flake8 to get started."
+	uv run ruff check .
+	uv run ruff format --check .
 
-.PHONY: fmt
-fmt:
-	@echo "Formatting is not configured yet. Add ruff format or black to get started."
+.PHONY: fmt format
+fmt format:
+	uv run ruff check --fix .
+	uv run ruff format .
 
 # ─── Maintenance ─────────────────────────────────────────────────────────────
 
