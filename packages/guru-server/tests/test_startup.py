@@ -1,13 +1,13 @@
 import subprocess
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from guru_server.startup import (
-    check_ollama_installed,
-    check_model_available,
-    OllamaNotFoundError,
     ModelNotFoundError,
+    OllamaNotFoundError,
+    check_model_available,
+    check_ollama_installed,
 )
 
 
@@ -17,9 +17,11 @@ def test_check_ollama_installed_success():
 
 
 def test_check_ollama_installed_not_found():
-    with patch("shutil.which", return_value=None):
-        with pytest.raises(OllamaNotFoundError, match="brew install ollama"):
-            check_ollama_installed()
+    with (
+        patch("shutil.which", return_value=None),
+        pytest.raises(OllamaNotFoundError, match="brew install ollama"),
+    ):
+        check_ollama_installed()
 
 
 def test_check_model_available_success():
@@ -32,12 +34,16 @@ def test_check_model_available_success():
 def test_check_model_available_not_found():
     mock_result = MagicMock()
     mock_result.stdout = "llama3:latest\tsome-hash\t4.7 GB"
-    with patch("subprocess.run", return_value=mock_result):
-        with pytest.raises(ModelNotFoundError, match="ollama pull nomic-embed-text"):
-            check_model_available("nomic-embed-text")
+    with (
+        patch("subprocess.run", return_value=mock_result),
+        pytest.raises(ModelNotFoundError, match="ollama pull nomic-embed-text"),
+    ):
+        check_model_available("nomic-embed-text")
 
 
 def test_check_model_available_ollama_not_running():
-    with patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "ollama")):
-        with pytest.raises(ModelNotFoundError):
-            check_model_available("nomic-embed-text")
+    with (
+        patch("subprocess.run", side_effect=subprocess.CalledProcessError(1, "ollama")),
+        pytest.raises(ModelNotFoundError),
+    ):
+        check_model_available("nomic-embed-text")

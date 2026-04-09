@@ -1,0 +1,62 @@
+# Contributing to Guru
+
+## Development setup
+
+```bash
+git clone https://github.com/martinmacak/guru.git
+cd guru
+uv sync --all-packages
+```
+
+## Running tests
+
+```bash
+uv run pytest                            # unit + integration tests
+uv run pytest packages/guru-core/        # guru-core tests only
+uv run pytest packages/guru-server/      # guru-server tests only
+uv run pytest packages/guru-mcp/         # guru-mcp tests only
+uv run pytest packages/guru-cli/         # guru-cli tests only
+uv run pytest -n auto                    # parallel (opt-in)
+uv run behave tests/e2e/features/        # BDD e2e tests
+./scripts/run-behave-parallel.sh         # e2e tests in parallel
+```
+
+## Project structure
+
+```
+packages/
+  guru-core/     shared client SDK (types, discovery, auto-start, HTTP client)
+  guru-server/   FastAPI daemon (LanceDB, Ollama, ingestion, REST API)
+  guru-mcp/      MCP protocol adapter (FastMCP, stdio)
+  guru-cli/      CLI (click) + TUI (Textual)
+```
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture constitution.
+
+## Package dependencies
+
+```
+guru (meta-package)
+├── guru-core     (pydantic, httpx)
+├── guru-server   (guru-core, fastapi, lancedb, llama-index, ollama)
+├── guru-mcp      (guru-core, fastmcp)
+└── guru-cli      (guru-core, click, textual)
+```
+
+## Releasing
+
+Releases are automated via CI. To publish a new version:
+
+```bash
+git tag v0.2.0
+git push --tags
+```
+
+CI will build all wheels, create a GitHub Release, and deploy to the
+GitHub Pages package index automatically.
+
+## CI
+
+- `ci.yml` — unit tests per-package (skip if unchanged), e2e behind `require-e2e-tests` label
+- `release.yml` — builds and publishes on tag push
+- `claude-code-review.yml` — Claude review behind `require-claude-review` label

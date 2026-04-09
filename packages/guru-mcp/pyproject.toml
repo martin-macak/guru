@@ -1,26 +1,36 @@
 [project]
 name = "guru-mcp"
-version = "0.1.0"
+dynamic = ["version", "dependencies"]
 description = "Guru MCP protocol adapter"
 readme = "README.md"
 authors = [
     { name = "Martin Macak", email = "martin.macak@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = [
-    "guru-core",
-    "fastmcp>=2.0",
-]
 
 [project.scripts]
 guru-mcp = "guru_mcp.server:main"
 
-[build-system]
-requires = ["uv_build>=0.10.3,<0.11.0"]
-build-backend = "uv_build"
-
 [tool.uv.sources]
 guru-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "guru-core=={{ version }}",
+    "fastmcp>=2.0",
+]
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
 
 [dependency-groups]
 dev = [

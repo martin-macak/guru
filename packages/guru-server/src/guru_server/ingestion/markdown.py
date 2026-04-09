@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import hashlib
 import re
 from pathlib import Path
+
 import frontmatter
 from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser as LlamaMarkdownParser
+
 from guru_core.types import Rule
 from guru_server.ingestion.base import Chunk, DocumentParser
 
@@ -46,18 +49,22 @@ class MarkdownParser(DocumentParser):
         for i, node in enumerate(nodes):
             header_breadcrumb = self._extract_breadcrumb(node)
             chunk_level = self._infer_level(header_breadcrumb)
-            chunk_id = hashlib.sha256(f"{file_path}:{header_breadcrumb}:{i}".encode()).hexdigest()[:16]
+            chunk_id = hashlib.sha256(f"{file_path}:{header_breadcrumb}:{i}".encode()).hexdigest()[
+                :16
+            ]
             content = node.get_content()
-            chunks.append(Chunk(
-                content=content,
-                file_path=str(file_path),
-                header_breadcrumb=header_breadcrumb,
-                chunk_level=chunk_level,
-                frontmatter=fm,
-                labels=list(rule.labels),
-                chunk_id=chunk_id,
-                content_type=_detect_content_type(content),
-            ))
+            chunks.append(
+                Chunk(
+                    content=content,
+                    file_path=str(file_path),
+                    header_breadcrumb=header_breadcrumb,
+                    chunk_level=chunk_level,
+                    frontmatter=fm,
+                    labels=list(rule.labels),
+                    chunk_id=chunk_id,
+                    content_type=_detect_content_type(content),
+                )
+            )
 
         # Apply split_level: if "h2", merge level-3 chunks into their parent level-2 chunk
         if split_level == "h2":
@@ -113,7 +120,7 @@ class MarkdownParser(DocumentParser):
 
         # Build breadcrumb: parent path parts + own heading (if not already the last parent part)
         if own_heading and (not parent_parts or parent_parts[-1] != own_heading):
-            parts = parent_parts + [own_heading]
+            parts = [*parent_parts, own_heading]
         elif parent_parts:
             parts = parent_parts
         else:

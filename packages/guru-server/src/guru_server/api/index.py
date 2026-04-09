@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -32,6 +32,7 @@ async def trigger_index(body: IndexBody, request: Request):
         target = project_root
 
     from guru_server.ingestion.markdown import MarkdownParser
+
     parser = MarkdownParser()
 
     # Collect the set of files excluded by any exclude rule (using Path.glob for ** support)
@@ -72,7 +73,7 @@ async def trigger_index(body: IndexBody, request: Request):
         vectors = await embedder.embed_batch(texts)
         store.add_chunks(all_chunks, vectors)
 
-    request.app.state.last_indexed = datetime.now(timezone.utc)
+    request.app.state.last_indexed = datetime.now(UTC)
 
     return {
         "indexed": len(all_chunks),

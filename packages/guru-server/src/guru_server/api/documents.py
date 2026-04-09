@@ -30,8 +30,7 @@ async def list_documents(request: Request):
                 if part:
                     requested_labels.add(part)
         documents = [
-            doc for doc in documents
-            if requested_labels.issubset(set(doc.get("labels", [])))
+            doc for doc in documents if requested_labels.issubset(set(doc.get("labels", [])))
         ]
 
     return documents

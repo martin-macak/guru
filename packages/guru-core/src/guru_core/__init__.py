@@ -1,3 +1,12 @@
+from guru_core.autostart import ServerStartError, ensure_server
+from guru_core.client import GuruClient
+from guru_core.config import (
+    DEFAULT_RULES,
+    load_rules,
+    merge_rules,
+    resolve_config,
+)
+from guru_core.discovery import GuruNotFoundError, find_guru_root
 from guru_core.types import (
     ChunkingConfig,
     DocumentInfo,
@@ -14,19 +23,10 @@ from guru_core.types import (
     StatusOut,
     StatusResponse,
 )
-from guru_core.config import (
-    DEFAULT_RULES,
-    load_rules,
-    merge_rules,
-    resolve_config,
-)
-from guru_core.discovery import find_guru_root, GuruNotFoundError
-from guru_core.client import GuruClient
-from guru_core.autostart import ensure_server, ServerStartError
 
 __all__ = [
-    "ChunkingConfig",
     "DEFAULT_RULES",
+    "ChunkingConfig",
     "DocumentInfo",
     "DocumentListItem",
     "DocumentOut",

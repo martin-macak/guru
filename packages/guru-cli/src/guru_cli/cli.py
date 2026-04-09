@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import sys
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import click
 
-from guru_core.discovery import find_guru_root, GuruNotFoundError
 from guru_core.autostart import ensure_server
 from guru_core.client import GuruClient
-
+from guru_core.discovery import GuruNotFoundError, find_guru_root
 
 DEFAULT_CONFIG = [
     {"ruleName": "default", "match": {"glob": "**/*.md"}},
@@ -34,7 +35,7 @@ def _run(coro):
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.0")
+@click.version_option(version=pkg_version("guru-cli"))
 @click.pass_context
 def cli(ctx):
     """Guru CLI — local knowledge base manager."""
@@ -52,20 +53,68 @@ def tui():
 @cli.command()
 def init():
     """Initialize a guru project in the current directory."""
-    guru_dir = Path.cwd() / ".guru"
-    guru_json = Path.cwd() / "guru.json"
+    cwd = Path.cwd()
+    guru_dir = cwd / ".guru"
+    guru_json = cwd / "guru.json"
+    mcp_json = cwd / ".mcp.json"
+    gitignore = cwd / ".gitignore"
 
+    # 1. Create .guru/ directory
     if guru_dir.is_dir():
         click.echo("Already initialized — .guru/ directory exists.")
-        return
+    else:
+        guru_dir.mkdir()
+        (guru_dir / "db").mkdir()
+        click.echo("Created .guru/")
 
-    guru_dir.mkdir()
-    (guru_dir / "db").mkdir()
-
-    if not guru_json.exists():
+    # 2. Create guru.json
+    if guru_json.exists():
+        click.echo("guru.json already exists, skipping.")
+    else:
         guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
+        click.echo("Created guru.json with default rules")
 
-    click.echo(f"Initialized guru project in {Path.cwd()}")
+    # 3. Merge guru into .mcp.json
+    _init_mcp_json(mcp_json)
+
+    # 4. Add .guru/ to .gitignore
+    _init_gitignore(gitignore)
+
+
+def _init_mcp_json(mcp_json: Path) -> None:
+    """Add guru entry to .mcp.json, creating or merging as needed."""
+    guru_entry = {"command": "guru-mcp"}
+
+    if mcp_json.exists():
+        mcp = json.loads(mcp_json.read_text())
+        servers = mcp.setdefault("mcpServers", {})
+        if "guru" in servers:
+            click.echo("guru already configured in .mcp.json, skipping.")
+            return
+        servers["guru"] = guru_entry
+    else:
+        mcp = {"mcpServers": {"guru": guru_entry}}
+
+    mcp_json.write_text(json.dumps(mcp, indent=2) + "\n")
+    click.echo("Added guru to .mcp.json")
+
+
+def _init_gitignore(gitignore: Path) -> None:
+    """Add .guru/ to .gitignore if not already present."""
+    marker = ".guru/"
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if marker in content.splitlines():
+            click.echo(".guru/ already in .gitignore, skipping.")
+            return
+        if not content.endswith("\n"):
+            content += "\n"
+        content += marker + "\n"
+    else:
+        content = marker + "\n"
+
+    gitignore.write_text(content)
+    click.echo("Added .guru/ to .gitignore")
 
 
 @cli.group()
@@ -174,13 +223,11 @@ def list_docs():
 @cli.command()
 def config():
     """Show resolved configuration with provenance."""
-    from guru_core.config import load_rules, merge_rules, DEFAULT_RULES
+    from guru_core.config import DEFAULT_RULES, load_rules, merge_rules
 
     guru_root = Path.cwd()
-    try:
+    with contextlib.suppress(GuruNotFoundError):
         guru_root = find_guru_root(Path.cwd())
-    except GuruNotFoundError:
-        pass
 
     global_path = Path.home() / ".config" / "guru" / "config.json"
     local_path = guru_root / "guru.json"

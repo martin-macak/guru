@@ -10,12 +10,11 @@ import asyncio
 import json
 from unittest.mock import patch
 
-from behave import given, when, then
-
+from behave import given, then, when
 from fastmcp import Client
+
 from guru_core.client import GuruClient
 from guru_mcp.server import mcp
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -91,7 +90,7 @@ def step_find_doc_path(context, fragment):
         if fragment in doc["file_path"]:
             context.known_file_path = doc["file_path"]
             return
-    assert False, f"No document matching '{fragment}' found in: {docs}"
+    raise AssertionError(f"No document matching '{fragment}' found in: {docs}")
 
 
 @given('I know a section header containing "{fragment}"')
@@ -110,7 +109,7 @@ def step_find_section_header(context, fragment):
             context.known_header = r["header_breadcrumb"]
             return
     breadcrumbs = [r.get("header_breadcrumb", "") for r in results]
-    assert False, f"No header containing '{fragment}'. Available: {breadcrumbs}"
+    raise AssertionError(f"No header containing '{fragment}'. Available: {breadcrumbs}")
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +132,7 @@ def step_call_mcp_no_args(context, tool_name):
 def step_call_mcp_search(context, tool_name, query):
     """Call an MCP search tool with a query."""
     try:
-        context.mcp_result = _run(
-            _call_tool(context.mcp_client, tool_name, {"query": query})
-        )
+        context.mcp_result = _run(_call_tool(context.mcp_client, tool_name, {"query": query}))
         context.mcp_error = None
     except Exception as e:
         context.mcp_result = None
@@ -155,14 +152,12 @@ def step_call_mcp_search_limited(context, tool_name, query, n):
         context.mcp_error = e
 
 
-@when("I call MCP tool \"get_document\" with the known file path")
+@when('I call MCP tool "get_document" with the known file path')
 def step_call_mcp_get_document(context):
     """Call get_document with the file path found in a previous step."""
     try:
         context.mcp_result = _run(
-            _call_tool(
-                context.mcp_client, "get_document", {"file_path": context.known_file_path}
-            )
+            _call_tool(context.mcp_client, "get_document", {"file_path": context.known_file_path})
         )
         context.mcp_error = None
     except Exception as e:
@@ -170,7 +165,7 @@ def step_call_mcp_get_document(context):
         context.mcp_error = e
 
 
-@when("I call MCP tool \"get_section\" with the known file path and header")
+@when('I call MCP tool "get_section" with the known file path and header')
 def step_call_mcp_get_section(context):
     """Call get_section with file path and header from previous steps."""
     try:
@@ -222,21 +217,15 @@ def step_mcp_result_nonempty_list(context):
     assert len(context.mcp_result) > 0, "MCP result list is empty"
 
 
-@then('the MCP result is a list with {n:d} items')
+@then("the MCP result is a list with {n:d} items")
 def step_mcp_result_list_count(context, n):
-    assert isinstance(context.mcp_result, list), (
-        f"Expected list, got {type(context.mcp_result)}"
-    )
-    assert len(context.mcp_result) == n, (
-        f"Expected {n} items, got {len(context.mcp_result)}"
-    )
+    assert isinstance(context.mcp_result, list), f"Expected list, got {type(context.mcp_result)}"
+    assert len(context.mcp_result) == n, f"Expected {n} items, got {len(context.mcp_result)}"
 
 
-@then('the MCP result has at most {n:d} items')
+@then("the MCP result has at most {n:d} items")
 def step_mcp_result_at_most(context, n):
-    assert isinstance(context.mcp_result, list), (
-        f"Expected list, got {type(context.mcp_result)}"
-    )
+    assert isinstance(context.mcp_result, list), f"Expected list, got {type(context.mcp_result)}"
     assert len(context.mcp_result) <= n, (
         f"Expected at most {n} items, got {len(context.mcp_result)}"
     )
@@ -277,18 +266,14 @@ def step_mcp_result_field_contains(context, field, text):
     actual = context.mcp_result.get(field)
     assert actual is not None, f"Field '{field}' is None"
     actual_str = str(actual)
-    assert text in actual_str, (
-        f"Expected '{text}' in {field}, got: {actual_str[:200]}"
-    )
+    assert text in actual_str, f"Expected '{text}' in {field}, got: {actual_str[:200]}"
 
 
 @then('the first MCP result has field "{field}"')
 def step_first_mcp_result_has_field(context, field):
     assert isinstance(context.mcp_result, list) and len(context.mcp_result) > 0
     first = context.mcp_result[0]
-    assert field in first, (
-        f"Field '{field}' not in first result. Keys: {list(first.keys())}"
-    )
+    assert field in first, f"Field '{field}' not in first result. Keys: {list(first.keys())}"
 
 
 @then('the first MCP result field "{field}" contains "{text}"')
@@ -305,14 +290,10 @@ def step_some_result_has_label(context, label):
     assert isinstance(context.mcp_result, list), "Result is not a list"
     for item in context.mcp_result:
         labels = item.get("labels", [])
-        if isinstance(labels, str):
-            if label in labels:
-                return
-        elif isinstance(labels, list):
-            if label in labels:
-                return
+        if isinstance(labels, str | list) and label in labels:
+            return
     all_labels = [item.get("labels") for item in context.mcp_result]
-    assert False, f"No result has label '{label}'. Labels found: {all_labels}"
+    raise AssertionError(f"No result has label '{label}'. Labels found: {all_labels}")
 
 
 @then('the MCP result contains an item with file_path matching "{fragment}"')

@@ -20,7 +20,9 @@ class OllamaEmbedder:
                 timeout=30.0,
             )
         if response.status_code != 200:
-            raise EmbeddingError(f"Ollama embedding failed ({response.status_code}): {response.text}")
+            raise EmbeddingError(
+                f"Ollama embedding failed ({response.status_code}): {response.text}"
+            )
         return response.json()["embedding"]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:

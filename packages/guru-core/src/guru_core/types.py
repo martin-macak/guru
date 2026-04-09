@@ -33,6 +33,7 @@ class SearchRequest(BaseModel):
 
 # --- API response models (canonical source of truth) ---
 
+
 class SearchResultOut(BaseModel):
     file_path: str
     header_breadcrumb: str
@@ -80,12 +81,14 @@ class IndexOut(BaseModel):
 
 # --- Legacy / extended models kept for backward compatibility ---
 
+
 class SearchResult(SearchResultOut):
     """Alias for SearchResultOut."""
 
 
 class DocumentInfo(BaseModel):
     """Extended document model that includes last_indexed timestamp."""
+
     file_path: str
     content: str
     frontmatter: dict[str, Any] = Field(default_factory=dict)
@@ -96,6 +99,7 @@ class DocumentInfo(BaseModel):
 
 class SectionInfo(BaseModel):
     """Section model using header_path naming convention."""
+
     file_path: str
     header_path: str
     content: str

@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastmcp import FastMCP
 
-from guru_core.discovery import find_guru_root
 from guru_core.autostart import ensure_server
 from guru_core.client import GuruClient
+from guru_core.discovery import find_guru_root
 
 mcp = FastMCP("guru")
 

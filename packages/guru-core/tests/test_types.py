@@ -1,12 +1,12 @@
 from datetime import datetime
 
 from guru_core.types import (
-    MatchConfig,
     ChunkingConfig,
+    DocumentInfo,
+    MatchConfig,
     Rule,
     SearchRequest,
     SearchResult,
-    DocumentInfo,
     SectionInfo,
     StatusResponse,
 )

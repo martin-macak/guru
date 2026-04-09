@@ -59,6 +59,7 @@ Do not add cross-dependencies that violate this graph.
 
 ## Tech Stack
 
+- hatchling + uv-dynamic-versioning (build backend, version from git tags)
 - FastAPI + uvicorn (server)
 - LanceDB (vector storage)
 - Ollama + nomic-embed-text (embeddings)
@@ -77,6 +78,51 @@ uv sync --all-packages          # install all workspace packages
 uv run guru                     # run CLI (launches TUI with no args)
 uv run guru-server              # run server directly
 uv run guru-mcp                 # run MCP server (stdio)
+make help                       # list all available targets
+make test                       # unit + integration tests (fast)
+make test-all                   # unit + integration + e2e tests
+make build                      # build all 5 wheels into dist/
+make lint                       # check code style
+make fmt                        # auto-fix + format
+```
+
+## Code Quality
+
+- Ruff is the linter and formatter. Config is in root `pyproject.toml`.
+- `make lint` — check only (ruff check + ruff format --check)
+- `make fmt` or `make format` — auto-fix + format (matches pre-commit)
+- pre-commit hooks run ruff on every commit. Run `make format` before committing.
+- Ruff rules: E, W, F, I, UP, B, SIM, RUF. Line length 99.
+
+## Tooling
+
+- `mise.toml` manages Python and pre-commit versions (mise tool version manager)
+- `pre-commit install` to set up git hooks after cloning
+- Claude Code hooks (`.claude/settings.json`) auto-run `ruff check --fix` + `ruff format`
+  on every Python file after Edit/Write — no manual formatting needed
+
+## Distribution
+
+Guru is distributed via a PEP 503 simple index on GitHub Pages.
+Build backend is `hatchling` + `uv-dynamic-versioning` (version from git tags).
+
+```bash
+uv tool install guru --extra-index-url https://martinmacak.github.io/guru/simple/
+```
+
+### Releasing
+
+```bash
+git tag v0.2.0
+git push --tags
+# CI builds wheels, creates GitHub Release, deploys to Pages index
+```
+
+### Build locally
+
+```bash
+uv build                                 # build root meta-package
+uv build --directory packages/guru-core  # build single package
 ```
 
 ## Testing
@@ -110,6 +156,7 @@ uv run behave tests/e2e/features/        # run BDD e2e tests (serial)
 ## CI (GitHub Actions)
 
 - `ci.yml` — unit tests per-package (skip if unchanged), e2e behind `require-e2e-tests` label
+- `release.yml` — builds and publishes wheels on tag push, deploys to GitHub Pages index
 - `claude-code-review.yml` — Claude review behind `require-claude-review` label
 - `claude.yml` — @claude mentions in PR comments
 
@@ -139,3 +186,11 @@ All design documents live under `docs/`, organized by type:
   The MCP protocol layer (Client -> FastMCP -> CallToolRequest) is fully exercised.
 - behave features run one server per feature (via `before_feature` hook) — features
   are fully independent and safe to parallelize.
+- `uv_build` does not support dynamic versioning (astral-sh/uv#14946). Use `hatchling`.
+- `uv-dynamic-versioning` requires `hatchling`, not `uv_build` as build backend.
+- When `"dependencies"` is in `dynamic = [...]`, ALL deps (inter-package + external)
+  must go in `[tool.hatch.metadata.hooks.uv-dynamic-versioning]`, not `[project]`.
+- `uv build --directory <pkg> --out-dir dist/` resolves `dist/` relative to the
+  package dir, not cwd. Use absolute paths: `--out-dir "$(pwd)/dist/"`.
+- pre-commit uses its own ruff install (from the hook repo), not the project's.
+  The hook's ruff version may differ — keep `.pre-commit-config.yaml` rev in sync.
