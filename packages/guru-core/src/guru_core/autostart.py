@@ -61,14 +61,36 @@ def ensure_server(guru_root: Path, timeout: float = 5.0) -> None:
         env=env,
     )
 
-    # Wait for socket to appear
+    # Wait for socket to appear, then verify server is healthy via GET /status
     deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+
     while time.monotonic() < deadline:
         if sock_file.exists():
-            return
+            last_error = _health_check(str(sock_file))
+            if last_error is None:
+                return
         time.sleep(0.1)
 
+    detail = f": {last_error}" if last_error is not None else ""
     raise ServerStartError(
-        f"guru-server did not start within {timeout}s. "
+        f"guru-server did not start within {timeout}s{detail}. "
         f"Check server logs or run `guru server start` manually."
     )
+
+
+def _health_check(sock_path: str) -> Exception | None:
+    """Perform a GET /status health check over the Unix domain socket.
+
+    Returns None on success, or the exception on failure.
+    """
+    import httpx  # local import to avoid circular deps
+
+    try:
+        transport = httpx.HTTPTransport(uds=sock_path)
+        with httpx.Client(transport=transport) as client:
+            resp = client.get("http://localhost/status")
+            resp.raise_for_status()
+        return None
+    except Exception as exc:  # noqa: BLE001
+        return exc

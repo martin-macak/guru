@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from guru_core.client import GuruClient
-from guru_core.autostart import ensure_server, ServerStartError
+from guru_core.autostart import ensure_server, ServerStartError, _health_check
 
 
 class TestGuruClient:
@@ -107,5 +107,61 @@ class TestEnsureServer:
 
         monkeypatch.setattr(Path, "exists", fake_exists)
 
+        # Mock health check to succeed once the socket appears
+        monkeypatch.setattr(
+            "guru_core.autostart._health_check", lambda sock_path: None
+        )
+
         ensure_server(tmp_path)
         assert not pid_file.exists() or pid_file.read_text() != "99999"
+
+    def test_health_check_failure_raises_server_start_error(self, tmp_path, monkeypatch):
+        """ensure_server raises ServerStartError if health check keeps failing."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        sock = guru_dir / "guru.sock"
+        sock.touch()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        # Stale process
+        monkeypatch.setattr("os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError()))
+
+        # Mock subprocess
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+
+        # Socket always appears immediately
+        original_exists = Path.exists
+        monkeypatch.setattr(Path, "exists", lambda self: True if self.name == "guru.sock" else original_exists(self))
+
+        # Health check always fails
+        monkeypatch.setattr(
+            "guru_core.autostart._health_check",
+            lambda sock_path: ConnectionRefusedError("server not ready"),
+        )
+
+        with pytest.raises(ServerStartError, match="server not ready"):
+            ensure_server(tmp_path, timeout=0.3)
+
+    def test_health_check_success(self, tmp_path, monkeypatch):
+        """_health_check returns None on a successful /status response."""
+        fake_request = httpx.Request("GET", "http://localhost/status")
+        fake_response = httpx.Response(200, json={"server_running": True}, request=fake_request)
+
+        def fake_send(self, request, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.Client, "send", fake_send)
+
+        result = _health_check("/fake/guru.sock")
+        assert result is None
+
+    def test_health_check_connection_error(self, tmp_path, monkeypatch):
+        """_health_check returns the exception when the connection fails."""
+        def fake_send(self, request, **kwargs):
+            raise httpx.ConnectError("refused")
+
+        monkeypatch.setattr(httpx.Client, "send", fake_send)
+
+        result = _health_check("/fake/guru.sock")
+        assert isinstance(result, httpx.ConnectError)
