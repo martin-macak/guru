@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from guru_core.types import (
     MatchConfig,
     ChunkingConfig,
@@ -12,11 +14,20 @@ from guru_core.types import (
 
 def test_rule_minimal():
     rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
-    assert rule.ruleName == "default"
+    assert rule.rule_name == "default"
     assert rule.match.glob == "**/*.md"
     assert rule.exclude is False
     assert rule.labels == []
     assert rule.chunking is None
+
+
+def test_rule_alias_construction():
+    # Verify JSON alias "ruleName" still works for guru.json compatibility
+    rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
+    assert rule.rule_name == "default"
+    # Also verify snake_case construction works
+    rule2 = Rule(rule_name="default", match=MatchConfig(glob="**/*.md"))
+    assert rule2.rule_name == "default"
 
 
 def test_rule_full():
@@ -61,16 +72,19 @@ def test_search_result():
 
 
 def test_document_info():
+    dt = datetime(2026, 4, 9, 12, 0, 0)
     doc = DocumentInfo(
         file_path="specs/auth.md",
         content="# Auth\n\nFull content here",
-        frontmatter={"title": "Auth Spec", "status": "approved"},
+        frontmatter={"title": "Auth Spec", "status": "approved", "tags": ["spec", "auth"]},
         labels=["spec"],
         chunk_count=5,
-        last_indexed="2026-04-09T12:00:00",
+        last_indexed=dt,
     )
     assert doc.frontmatter["title"] == "Auth Spec"
+    assert doc.frontmatter["tags"] == ["spec", "auth"]
     assert doc.chunk_count == 5
+    assert doc.last_indexed == dt
 
 
 def test_section_info():
@@ -84,12 +98,26 @@ def test_section_info():
 
 
 def test_status_response():
+    dt = datetime(2026, 4, 9, 12, 0, 0)
     status = StatusResponse(
         server_running=True,
         document_count=42,
         chunk_count=256,
-        last_indexed="2026-04-09T12:00:00",
+        last_indexed=dt,
         ollama_available=True,
         model_loaded=True,
     )
     assert status.document_count == 42
+    assert status.last_indexed == dt
+
+
+def test_status_response_no_last_indexed():
+    status = StatusResponse(
+        server_running=False,
+        document_count=0,
+        chunk_count=0,
+        last_indexed=None,
+        ollama_available=False,
+        model_loaded=False,
+    )
+    assert status.last_indexed is None

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MatchConfig(BaseModel):
@@ -13,7 +16,9 @@ class ChunkingConfig(BaseModel):
 
 
 class Rule(BaseModel):
-    ruleName: str
+    model_config = ConfigDict(populate_by_name=True)
+
+    rule_name: str = Field(alias="ruleName")
     match: MatchConfig
     exclude: bool = False
     labels: list[str] = Field(default_factory=list)
@@ -38,10 +43,10 @@ class SearchResult(BaseModel):
 class DocumentInfo(BaseModel):
     file_path: str
     content: str
-    frontmatter: dict[str, str] = Field(default_factory=dict)
+    frontmatter: dict[str, Any] = Field(default_factory=dict)
     labels: list[str] = Field(default_factory=list)
     chunk_count: int
-    last_indexed: str
+    last_indexed: datetime
 
 
 class SectionInfo(BaseModel):
@@ -55,6 +60,6 @@ class StatusResponse(BaseModel):
     server_running: bool
     document_count: int
     chunk_count: int
-    last_indexed: str | None
+    last_indexed: datetime | None
     ollama_available: bool
     model_loaded: bool
