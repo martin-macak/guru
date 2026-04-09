@@ -1,12 +1,43 @@
 [project]
 name = "guru"
-version = "0.1.0"
+dynamic = ["version", "dependencies"]
 description = "Local-first knowledge base manager with MCP interface"
 requires-python = ">=3.13"
-dependencies = []
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "guru-core=={{ version }}",
+    "guru-server=={{ version }}",
+    "guru-mcp=={{ version }}",
+    "guru-cli=={{ version }}",
+]
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/guru"]
+
+[tool.hatch.build.targets.sdist]
+include = ["pyproject.toml", "src/"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.uv.sources]
+guru-core = { workspace = true }
+guru-server = { workspace = true }
+guru-mcp = { workspace = true }
+guru-cli = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
