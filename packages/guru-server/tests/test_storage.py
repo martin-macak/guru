@@ -12,15 +12,15 @@ def sample_chunks():
         Chunk(content="OAuth 2.0 authentication flow", file_path="specs/auth.md",
               header_breadcrumb="Auth > OAuth", chunk_level=2,
               frontmatter={"title": "Auth Spec", "status": "approved"},
-              labels=["spec"], chunk_id="abc123"),
+              labels=["spec"], chunk_id="abc123", content_type="text"),
         Chunk(content="Token refresh happens every 30 minutes", file_path="specs/auth.md",
               header_breadcrumb="Auth > OAuth > Token Refresh", chunk_level=3,
               frontmatter={"title": "Auth Spec", "status": "approved"},
-              labels=["spec"], chunk_id="def456"),
+              labels=["spec"], chunk_id="def456", content_type="text"),
         Chunk(content="Role-based access control for API endpoints", file_path="specs/rbac.md",
               header_breadcrumb="RBAC > API Access", chunk_level=2,
               frontmatter={"title": "RBAC Spec", "status": "draft"},
-              labels=["spec", "security"], chunk_id="ghi789"),
+              labels=["spec", "security"], chunk_id="ghi789", content_type="text"),
     ]
 
 def test_add_and_count(store, sample_chunks):

@@ -14,6 +14,7 @@ class Chunk:
     labels: list[str] = field(default_factory=list)
     parent_chunk_id: str | None = None
     chunk_id: str | None = None
+    content_type: str = "text"  # "text", "code", "table", "mixed"
 
 class DocumentParser(ABC):
     @abstractmethod

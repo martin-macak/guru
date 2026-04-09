@@ -32,6 +32,7 @@ class VectorStore:
                 "labels": json.dumps(chunk.labels),
                 "chunk_id": chunk.chunk_id or "",
                 "parent_chunk_id": chunk.parent_chunk_id or "",
+                "content_type": chunk.content_type,
             })
         table = self._get_table()
         if table is None:
