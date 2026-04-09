@@ -79,6 +79,30 @@ uv run guru-server              # run server directly
 uv run guru-mcp                 # run MCP server (stdio)
 ```
 
+## Distribution
+
+Guru is distributed via a PEP 503 simple index on GitHub Pages.
+Build backend is `hatchling` + `uv-dynamic-versioning` (version from git tags).
+
+```bash
+uv tool install guru --extra-index-url https://martinmacak.github.io/guru/simple/
+```
+
+### Releasing
+
+```bash
+git tag v0.2.0
+git push --tags
+# CI builds wheels, creates GitHub Release, deploys to Pages index
+```
+
+### Build locally
+
+```bash
+uv build                                 # build root meta-package
+uv build --directory packages/guru-core  # build single package
+```
+
 ## Testing
 
 ```bash
