@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed for dunamai version detection
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install build dependencies
+        run: uv sync --all-packages
+
+      - name: Build all wheels
+        run: |
+          mkdir -p dist
+          for pkg in packages/guru-core packages/guru-server packages/guru-mcp packages/guru-cli .; do
+            uv build --directory "$pkg" --out-dir dist/
+          done
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" dist/*.whl \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
+
+      - name: Deploy to GitHub Pages index
+        run: |
+          set -e
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Prepare a temporary working area
+          WORK=$(mktemp -d)
+          PAGES_BRANCH=gh-pages
+
+          # Try to fetch existing gh-pages, or start fresh
+          if git ls-remote --exit-code origin "$PAGES_BRANCH" > /dev/null 2>&1; then
+            git fetch origin "$PAGES_BRANCH"
+            git worktree add "$WORK" "$PAGES_BRANCH"
+          else
+            git worktree add --orphan "$WORK" "$PAGES_BRANCH"
+            # Clean the orphan worktree
+            rm -rf "$WORK"/*
+          fi
+
+          # Copy new wheels
+          mkdir -p "$WORK/wheels"
+          cp dist/*.whl "$WORK/wheels/"
+
+          # Generate index
+          python scripts/generate_index.py "$WORK/wheels" "$WORK/simple"
+
+          # Commit and push
+          cd "$WORK"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "No changes to deploy"
+          else
+            git commit -m "release: deploy ${{ github.ref_name }}"
+            git push origin "$PAGES_BRANCH"
+          fi
+
+          # Cleanup worktree
+          cd -
+          git worktree remove "$WORK" --force
