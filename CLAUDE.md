@@ -97,6 +97,7 @@ uv run behave tests/e2e/features/        # run BDD e2e tests (serial)
 - **Integration tests** (pytest) — `tests/test_integration.py`, mocked embedder
 - **BDD e2e** (behave) — `tests/e2e/features/*.feature`, real server on UDS
   - `knowledge_base.feature` — CLI workflow with mocked embeddings (fast)
+  - `mcp_tools.feature` — MCP protocol tools via FastMCP in-memory Client
   - `semantic_search.feature` (`@real_ollama`) — real Ollama embeddings, verifies
     semantic retrieval accuracy and config-driven labeling
 
@@ -106,10 +107,11 @@ uv run behave tests/e2e/features/        # run BDD e2e tests (serial)
 - `@real_ollama` tag marks tests requiring a running Ollama instance
 - pytest `@pytest.mark.slow` tests are skipped by default (run with `-m slow`)
 
-## Known Gaps
+## CI (GitHub Actions)
 
-- API endpoints lack `response_model` annotations — OpenAPI response schemas are
-  incomplete. Fix by adding Pydantic response models to all endpoints.
+- `ci.yml` — unit tests per-package (skip if unchanged), e2e behind `require-e2e-tests` label
+- `claude-code-review.yml` — Claude review behind `require-claude-review` label
+- `claude.yml` — @claude mentions in PR comments
 
 ## Design Docs
 
@@ -131,3 +133,9 @@ All design documents live under `docs/`, organized by type:
   for inter-package dependencies.
 - Root `pyproject.toml` needs `addopts = "--import-mode=importlib"` for pytest to
   collect tests across multiple packages without `tests` package name collisions.
+- pytest-xdist `-n auto` adds ~26s fork overhead — don't enable by default until
+  the test suite is large enough to benefit. Keep serial, pass `-n auto` explicitly.
+- MCP e2e tests patch `guru_mcp.server._get_client` to point at the test server.
+  The MCP protocol layer (Client -> FastMCP -> CallToolRequest) is fully exercised.
+- behave features run one server per feature (via `before_feature` hook) — features
+  are fully independent and safe to parallelize.
