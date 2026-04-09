@@ -82,7 +82,8 @@ uv run guru-mcp                 # run MCP server (stdio)
 ## Testing
 
 ```bash
-uv run pytest                            # run unit + integration tests (parallel, auto CPU count)
+uv run pytest                            # run unit + integration tests (serial, fast)
+uv run pytest -n auto                   # run parallel (opt-in, useful when test count grows)
 uv run pytest packages/guru-core/        # run guru-core tests only
 uv run pytest packages/guru-server/      # run guru-server tests only
 uv run pytest tests/                     # run integration tests
