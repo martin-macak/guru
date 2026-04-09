@@ -98,6 +98,8 @@ make fmt                        # auto-fix + format
 
 - `mise.toml` manages Python and pre-commit versions (mise tool version manager)
 - `pre-commit install` to set up git hooks after cloning
+- Claude Code hooks (`.claude/settings.json`) auto-run `ruff check --fix` + `ruff format`
+  on every Python file after Edit/Write — no manual formatting needed
 
 ## Distribution
 
