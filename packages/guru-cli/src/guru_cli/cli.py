@@ -53,20 +53,68 @@ def tui():
 @cli.command()
 def init():
     """Initialize a guru project in the current directory."""
-    guru_dir = Path.cwd() / ".guru"
-    guru_json = Path.cwd() / "guru.json"
+    cwd = Path.cwd()
+    guru_dir = cwd / ".guru"
+    guru_json = cwd / "guru.json"
+    mcp_json = cwd / ".mcp.json"
+    gitignore = cwd / ".gitignore"
 
+    # 1. Create .guru/ directory
     if guru_dir.is_dir():
         click.echo("Already initialized — .guru/ directory exists.")
-        return
+    else:
+        guru_dir.mkdir()
+        (guru_dir / "db").mkdir()
+        click.echo("Created .guru/")
 
-    guru_dir.mkdir()
-    (guru_dir / "db").mkdir()
-
-    if not guru_json.exists():
+    # 2. Create guru.json
+    if guru_json.exists():
+        click.echo("guru.json already exists, skipping.")
+    else:
         guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
+        click.echo("Created guru.json with default rules")
 
-    click.echo(f"Initialized guru project in {Path.cwd()}")
+    # 3. Merge guru into .mcp.json
+    _init_mcp_json(mcp_json)
+
+    # 4. Add .guru/ to .gitignore
+    _init_gitignore(gitignore)
+
+
+def _init_mcp_json(mcp_json: Path) -> None:
+    """Add guru entry to .mcp.json, creating or merging as needed."""
+    guru_entry = {"command": "guru-mcp"}
+
+    if mcp_json.exists():
+        mcp = json.loads(mcp_json.read_text())
+        servers = mcp.setdefault("mcpServers", {})
+        if "guru" in servers:
+            click.echo("guru already configured in .mcp.json, skipping.")
+            return
+        servers["guru"] = guru_entry
+    else:
+        mcp = {"mcpServers": {"guru": guru_entry}}
+
+    mcp_json.write_text(json.dumps(mcp, indent=2) + "\n")
+    click.echo("Added guru to .mcp.json")
+
+
+def _init_gitignore(gitignore: Path) -> None:
+    """Add .guru/ to .gitignore if not already present."""
+    marker = ".guru/"
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if marker in content.splitlines():
+            click.echo(".guru/ already in .gitignore, skipping.")
+            return
+        if not content.endswith("\n"):
+            content += "\n"
+        content += marker + "\n"
+    else:
+        content = marker + "\n"
+
+    gitignore.write_text(content)
+    click.echo("Added .guru/ to .gitignore")
 
 
 @cli.group()
