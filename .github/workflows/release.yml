@@ -57,9 +57,7 @@ jobs:
             git fetch origin "$PAGES_BRANCH"
             git worktree add "$WORK" "$PAGES_BRANCH"
           else
-            git worktree add --orphan "$WORK" "$PAGES_BRANCH"
-            # Clean the orphan worktree
-            rm -rf "$WORK"/*
+            git worktree add --orphan -b "$PAGES_BRANCH" "$WORK"
           fi
 
           # Copy new wheels
