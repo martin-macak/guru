@@ -86,3 +86,11 @@ packages/
 - Requires Python >= 3.13.
 - Managed via uv workspaces.
 - External runtime dependency: Ollama (installed separately).
+
+## Methodology: Spec-Driven
+
+- All major features must have BDD feature specs (Gherkin) as acceptance criteria.
+- All REST API endpoints must have typed Pydantic request/response models producing
+  a complete OpenAPI specification.
+- Feature files (`tests/e2e/features/*.feature`) are part of the specification.
+- Design specs and ADRs live in `docs/`.
