@@ -23,26 +23,27 @@ async def trigger_index(body: IndexBody, request: Request):
     from guru_server.ingestion.markdown import MarkdownParser
     parser = MarkdownParser()
 
+    # Build exclude patterns
+    exclude_patterns = [r.match.glob for r in config if r.exclude]
+
+    # Collect files by globbing each include rule directly
     all_chunks = []
+    seen_files: set[str] = set()
+
     for rule in config:
         if rule.exclude:
             continue
-        for file_path in target.rglob("*"):
+        for file_path in target.glob(rule.match.glob):
             if not file_path.is_file():
                 continue
-            if not fnmatch.fnmatch(str(file_path.relative_to(target)), rule.match.glob):
+            rel = str(file_path.relative_to(target))
+            if rel in seen_files:
                 continue
-            # Check if any exclude rule matches
-            excluded = False
-            for exc_rule in config:
-                if exc_rule.exclude and fnmatch.fnmatch(
-                    str(file_path.relative_to(target)), exc_rule.match.glob
-                ):
-                    excluded = True
-                    break
-            if excluded:
+            # Check exclude rules
+            if any(fnmatch.fnmatch(rel, ep) for ep in exclude_patterns):
                 continue
             if parser.supports(file_path):
+                seen_files.add(rel)
                 chunks = parser.parse(file_path, rule)
                 all_chunks.extend(chunks)
 

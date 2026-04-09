@@ -10,7 +10,10 @@ members = ["packages/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m 'not slow'"
+markers = [
+    "slow: end-to-end tests that start a real server (deselected by default, run with: -m slow)",
+]
 
 [dependency-groups]
 dev = [
