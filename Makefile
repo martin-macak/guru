@@ -66,9 +66,9 @@ test-all: test-unit test-integration test-e2e
 
 .PHONY: build
 build:
-	uv build
-	@for pkg in $(PACKAGES); do \
-		uv build --directory $$pkg; \
+	@mkdir -p dist
+	@for pkg in $(PACKAGES) .; do \
+		uv build --directory $$pkg --out-dir "$$(pwd)/dist/"; \
 	done
 	@echo "All wheels written to dist/"
 
