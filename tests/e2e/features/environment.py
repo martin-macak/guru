@@ -338,6 +338,9 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """Stop the server and clean up."""
+    if hasattr(context, "_mcp_patcher"):
+        context._mcp_patcher.stop()
+
     if hasattr(context, "server"):
         context.server.should_exit = True
         context.server_thread.join(timeout=5)
