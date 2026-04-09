@@ -41,7 +41,13 @@ def cli(ctx):
     """Guru CLI — local knowledge base manager."""
     if ctx.invoked_subcommand is None:
         # Bare `guru` launches TUI (Phase 3)
-        click.echo("TUI not yet implemented. Use `guru --help` for available commands.")
+        click.echo("TUI is planned for Phase 3. Use `guru --help` for available commands.")
+
+
+@cli.command()
+def tui():
+    """Launch the Guru TUI (planned for Phase 3)."""
+    click.echo("TUI is planned for Phase 3. Use `guru --help` for available commands.")
 
 
 @cli.command()
