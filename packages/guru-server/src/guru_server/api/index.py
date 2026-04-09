@@ -64,6 +64,10 @@ async def trigger_index(body: IndexBody, request: Request):
                 all_chunks.extend(chunks)
 
     if all_chunks:
+        # Remove existing chunks for these files before re-indexing to prevent duplicates
+        indexed_paths = list({c.file_path for c in all_chunks})
+        store.delete_files(indexed_paths)
+
         texts = [chunk.content for chunk in all_chunks]
         vectors = await embedder.embed_batch(texts)
         store.add_chunks(all_chunks, vectors)

@@ -205,9 +205,9 @@ def step_doc_has_label(context, label):
 def step_search_results_contain_label(context, label):
     """Verify the search output contains the label somewhere.
 
-    Labels are stored as JSON strings in the search results. The CLI
-    search command doesn't explicitly display labels, so we check via
-    'guru doc' on the first result's file path.
+    Labels are returned as a list in search results. The CLI search command
+    doesn't explicitly display labels, so we check via 'guru doc' on the
+    first result's file path.
     """
     # Extract file path from the first search result
     file_path = None

@@ -10,7 +10,7 @@ async def get_status(request: Request):
     store = request.app.state.store
     return {
         "server_running": True,
-        "document_count": len(store.list_documents()),
+        "document_count": store.document_count(),
         "chunk_count": store.chunk_count(),
         "last_indexed": request.app.state.last_indexed,
         "ollama_available": True,

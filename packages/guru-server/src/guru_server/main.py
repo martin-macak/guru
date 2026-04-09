@@ -26,33 +26,35 @@ def main():
         print(f"Error: {guru_dir} does not exist. Run `guru init` first.", file=sys.stderr)
         sys.exit(1)
 
-    # Preflight checks
+    # Preflight checks + startup — ensure ollama_proc is always cleaned up
     check_ollama_installed()
     ollama_proc = start_ollama_serve()
-    check_model_available("nomic-embed-text")
-
-    # Initialize components
-    config = resolve_config(project_root=Path(project_root))
-    store = VectorStore(db_path=str(guru_dir / "db"))
-    embedder = OllamaEmbedder()
-
-    app = create_app(
-        store=store,
-        embedder=embedder,
-        config=config,
-        project_root=project_root,
-    )
-
-    socket_path = str(guru_dir / "guru.sock")
-    pid_path = guru_dir / "guru.pid"
-
-    # Write PID file
-    pid_path.write_text(str(os.getpid()))
-
     try:
-        uvicorn.run(app, uds=socket_path, log_level="info")
+        check_model_available("nomic-embed-text")
+
+        # Initialize components
+        config = resolve_config(project_root=Path(project_root))
+        store = VectorStore(db_path=str(guru_dir / "db"))
+        embedder = OllamaEmbedder()
+
+        app = create_app(
+            store=store,
+            embedder=embedder,
+            config=config,
+            project_root=project_root,
+        )
+
+        socket_path = str(guru_dir / "guru.sock")
+        pid_path = guru_dir / "guru.pid"
+
+        # Write PID file
+        pid_path.write_text(str(os.getpid()))
+
+        try:
+            uvicorn.run(app, uds=socket_path, log_level="info")
+        finally:
+            # Cleanup
+            pid_path.unlink(missing_ok=True)
+            Path(socket_path).unlink(missing_ok=True)
     finally:
-        # Cleanup
-        pid_path.unlink(missing_ok=True)
-        Path(socket_path).unlink(missing_ok=True)
         stop_ollama_serve(ollama_proc)

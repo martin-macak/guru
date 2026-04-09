@@ -10,7 +10,6 @@ import click
 from guru_core.discovery import find_guru_root, GuruNotFoundError
 from guru_core.autostart import ensure_server
 from guru_core.client import GuruClient
-from guru_core.types import Rule, MatchConfig
 
 
 DEFAULT_CONFIG = [

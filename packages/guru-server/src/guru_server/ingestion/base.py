@@ -2,6 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from guru_core.types import Rule
 
 @dataclass
@@ -10,7 +11,7 @@ class Chunk:
     file_path: str
     header_breadcrumb: str
     chunk_level: int
-    frontmatter: dict[str, str] = field(default_factory=dict)
+    frontmatter: dict[str, Any] = field(default_factory=dict)
     labels: list[str] = field(default_factory=list)
     parent_chunk_id: str | None = None
     chunk_id: str | None = None

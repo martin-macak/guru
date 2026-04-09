@@ -85,6 +85,23 @@ def test_list_documents(client):
     assert data[0]["file_path"] == "specs/auth.md"
 
 
+def test_list_documents_with_label_filter(client, mock_store):
+    mock_store.list_documents.return_value = [
+        {"file_path": "specs/auth.md", "frontmatter": {"title": "Auth"}, "labels": ["spec"], "chunk_count": 5},
+        {"file_path": "specs/rbac.md", "frontmatter": {"title": "RBAC"}, "labels": ["spec", "security"], "chunk_count": 3},
+    ]
+    resp = client.get("/documents?labels=security")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["file_path"] == "specs/rbac.md"
+
+
+def test_list_documents_with_unsupported_filter(client):
+    resp = client.get("/documents?unknown_col=foo")
+    assert resp.status_code == 400
+
+
 def test_get_document(client):
     resp = client.get("/documents/specs/auth.md")
     assert resp.status_code == 200

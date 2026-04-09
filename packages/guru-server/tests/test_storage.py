@@ -28,6 +28,20 @@ def test_add_and_count(store, sample_chunks):
     store.add_chunks(sample_chunks, fake_vectors)
     assert store.chunk_count() == 3
 
+def test_add_chunks_length_mismatch(store, sample_chunks):
+    with pytest.raises(ValueError, match="same length"):
+        store.add_chunks(sample_chunks, [[0.1] * 768])
+
+def test_add_chunks_wrong_vector_dim(store, sample_chunks):
+    with pytest.raises(ValueError, match="dimension"):
+        store.add_chunks(sample_chunks[:1], [[0.1] * 100])
+
+def test_document_count(store, sample_chunks):
+    assert store.document_count() == 0
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+    assert store.document_count() == 2
+
 def test_search_returns_results(store, sample_chunks):
     fake_vectors = [[0.1] * 768 for _ in sample_chunks]
     store.add_chunks(sample_chunks, fake_vectors)
@@ -40,7 +54,7 @@ def test_search_with_label_filter(store, sample_chunks):
     store.add_chunks(sample_chunks, fake_vectors)
     results = store.search(query_vector=[0.1] * 768, n_results=10, where="labels LIKE '%security%'")
     assert len(results) >= 1
-    assert all("security" in r.get("labels", "") for r in results)
+    assert all("security" in r.get("labels", []) for r in results)
 
 def test_list_documents(store, sample_chunks):
     fake_vectors = [[0.1] * 768 for _ in sample_chunks]
@@ -58,6 +72,17 @@ def test_get_document(store, sample_chunks):
     assert doc["file_path"] == "specs/auth.md"
     assert doc["chunk_count"] == 2
 
+def test_get_document_stable_order(store, sample_chunks):
+    """Re-indexing should return chunks in ingestion order."""
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+    doc1 = store.get_document("specs/auth.md")
+    # Index again (delete + re-add)
+    store.delete_files(["specs/auth.md"])
+    store.add_chunks(sample_chunks[:2], fake_vectors[:2])
+    doc2 = store.get_document("specs/auth.md")
+    assert doc1["content"] == doc2["content"]
+
 def test_get_document_not_found(store):
     doc = store.get_document("nonexistent.md")
     assert doc is None
@@ -68,3 +93,15 @@ def test_get_section(store, sample_chunks):
     section = store.get_section("specs/auth.md", "Auth > OAuth > Token Refresh")
     assert section is not None
     assert "Token refresh" in section["content"]
+
+def test_delete_files_prevents_duplicates(store, sample_chunks):
+    """Re-indexing should not duplicate chunks."""
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+    assert store.chunk_count() == 3
+
+    # Re-index auth.md
+    store.delete_files(["specs/auth.md"])
+    store.add_chunks(sample_chunks[:2], fake_vectors[:2])
+    # Still 3 total chunks (2 auth + 1 rbac)
+    assert store.chunk_count() == 3
