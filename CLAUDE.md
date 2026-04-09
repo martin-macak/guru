@@ -63,12 +63,17 @@ uv run guru-mcp                 # run MCP server (stdio)
 ## Testing
 
 ```bash
-uv run pytest                       # run all tests
+uv run pytest                       # run unit + integration tests (fast)
 uv run pytest packages/guru-core/   # run guru-core tests only
 uv run pytest packages/guru-server/ # run guru-server tests only
 uv run pytest tests/                # run integration tests
 uv run pytest --tb=short -q         # quick summary
+uv run behave tests/e2e/features/   # run BDD e2e tests (starts real server)
 ```
+
+E2E tests use behave (BDD) with Gherkin feature files at `tests/e2e/features/`.
+They start a real server on a Unix domain socket with a mocked embedder and
+invoke the CLI via subprocess.
 
 ## Design Docs
 
