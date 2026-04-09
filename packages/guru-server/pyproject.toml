@@ -15,10 +15,12 @@ dependencies = [
     "python-frontmatter>=1.1",
     "lancedb>=0.27",
     "pandas>=2.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
 ]
 
 [project.scripts]
-guru-server = "guru_server:main"
+guru-server = "guru_server.main:main"
 
 [tool.uv.sources]
 guru-core = { workspace = true }
