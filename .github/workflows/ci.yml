@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Unit tests — per-package, only if that package changed
+  # ---------------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      guru-core: ${{ steps.filter.outputs.guru-core }}
+      guru-server: ${{ steps.filter.outputs.guru-server }}
+      guru-mcp: ${{ steps.filter.outputs.guru-mcp }}
+      guru-cli: ${{ steps.filter.outputs.guru-cli }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            guru-core:
+              - 'packages/guru-core/**'
+            guru-server:
+              - 'packages/guru-server/**'
+            guru-mcp:
+              - 'packages/guru-mcp/**'
+            guru-cli:
+              - 'packages/guru-cli/**'
+
+  unit-tests:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: guru-core
+            changed: ${{ needs.detect-changes.outputs.guru-core }}
+          - package: guru-server
+            changed: ${{ needs.detect-changes.outputs.guru-server }}
+          - package: guru-mcp
+            changed: ${{ needs.detect-changes.outputs.guru-mcp }}
+          - package: guru-cli
+            changed: ${{ needs.detect-changes.outputs.guru-cli }}
+    if: >-
+      needs.detect-changes.outputs.guru-core == 'true' ||
+      needs.detect-changes.outputs.guru-server == 'true' ||
+      needs.detect-changes.outputs.guru-mcp == 'true' ||
+      needs.detect-changes.outputs.guru-cli == 'true'
+    steps:
+      - if: matrix.changed == 'true'
+        uses: actions/checkout@v4
+
+      - if: matrix.changed == 'true'
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - if: matrix.changed == 'true'
+        run: uv sync --all-packages
+
+      - if: matrix.changed == 'true'
+        run: uv run pytest packages/${{ matrix.package }}/ -v --tb=short
+
+    name: test (${{ matrix.package }})
+
+  # ---------------------------------------------------------------------------
+  # E2E tests — only when label "require-e2e-tests" is set
+  # ---------------------------------------------------------------------------
+  e2e-tests:
+    if: contains(github.event.pull_request.labels.*.name, 'require-e2e-tests')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama and pull model
+        run: |
+          ollama serve &
+          sleep 3
+          ollama pull nomic-embed-text
+
+      - run: uv sync --all-packages
+
+      - name: Run BDD e2e tests
+        run: uv run behave tests/e2e/features/
