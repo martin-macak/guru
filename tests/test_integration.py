@@ -1,7 +1,5 @@
 """Integration smoke test: init -> index -> search without real Ollama."""
 import json
-from pathlib import Path
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,19 +78,13 @@ def mock_embedder():
         vec[call_count % 768] = 1.0
         return vec
 
-    embedder.embed = fake_embed
-    embedder.embed_batch = AsyncMock(side_effect=lambda texts: [
-        fake_embed.__wrapped__(t) if hasattr(fake_embed, '__wrapped__') else
-        [0.1] * 768 for t in texts
-    ])
-
-    # Simpler: just return consistent vectors
     async def batch_embed(texts):
         results = []
         for t in texts:
             results.append(await fake_embed(t))
         return results
 
+    embedder.embed = fake_embed
     embedder.embed_batch = batch_embed
     return embedder
 

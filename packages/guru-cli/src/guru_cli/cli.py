@@ -175,8 +175,7 @@ def list_docs():
 @cli.command()
 def config():
     """Show resolved configuration with provenance."""
-    # Read config files directly — no server dependency needed
-    from guru_core.types import Rule
+    from guru_server.config import load_rules, merge_rules, DEFAULT_RULES
 
     guru_root = Path.cwd()
     try:
@@ -184,25 +183,39 @@ def config():
     except GuruNotFoundError:
         pass
 
-    sources = []
-
-    # Check global config
     global_path = Path.home() / ".config" / "guru" / "config.json"
-    if global_path.is_file():
-        rules = json.loads(global_path.read_text())
-        for r in rules:
-            sources.append({"source": str(global_path), **r})
-
-    # Check local config (guru.json preferred, then .guru/config.json)
     local_path = guru_root / "guru.json"
     if not local_path.is_file():
         local_path = guru_root / ".guru" / "config.json"
-    if local_path.is_file():
-        rules = json.loads(local_path.read_text())
-        for r in rules:
-            sources.append({"source": str(local_path), **r})
 
-    if not sources:
-        sources = [{"source": "default", "ruleName": "default", "match": {"glob": "**/*.md"}}]
+    global_rules = load_rules(global_path)
+    local_rules = load_rules(local_path)
 
-    click.echo(json.dumps(sources, indent=2))
+    # Determine source labels before merging
+    rule_source: dict[str, str] = {}
+    if global_rules:
+        for r in global_rules:
+            rule_source[r.rule_name] = str(global_path)
+    if local_rules:
+        for r in local_rules:
+            rule_source[r.rule_name] = str(local_path)  # local overrides global
+
+    # Apply the same merge semantics as the server
+    if global_rules is None and local_rules is None:
+        effective = list(DEFAULT_RULES)
+        for r in effective:
+            rule_source[r.rule_name] = "default"
+    elif global_rules is None:
+        effective = local_rules
+    elif local_rules is None:
+        effective = global_rules
+    else:
+        effective = merge_rules(global_rules, local_rules)
+
+    output = []
+    for rule in effective:
+        entry = json.loads(rule.model_dump_json(by_alias=True))
+        entry["source"] = rule_source.get(rule.rule_name, "default")
+        output.append(entry)
+
+    click.echo(json.dumps(output, indent=2))

@@ -6,6 +6,9 @@ from guru_server.ingestion.base import Chunk
 VECTOR_DIM = 768
 TABLE_NAME = "chunks"
 
+_TABLE_NOT_FOUND_PHRASES = ("not found", "does not exist", "no such", "notfounderror")
+
+
 class VectorStore:
     def __init__(self, db_path: str):
         self.db = lancedb.connect(db_path)
@@ -15,11 +18,21 @@ class VectorStore:
         if self._table is None:
             try:
                 self._table = self.db.open_table(TABLE_NAME)
-            except Exception:
+            except FileNotFoundError:
                 return None
+            except Exception as exc:
+                msg = str(exc).lower()
+                if any(phrase in msg for phrase in _TABLE_NOT_FOUND_PHRASES):
+                    return None
+                raise
         return self._table
 
     def add_chunks(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
+        for i, vector in enumerate(vectors):
+            if len(vector) != VECTOR_DIM:
+                raise ValueError(
+                    f"Vector at index {i} has dimension {len(vector)}, expected {VECTOR_DIM}"
+                )
         records = []
         for chunk, vector in zip(chunks, vectors):
             records.append({
@@ -56,42 +69,76 @@ class VectorStore:
         results = query.to_list()
         return [{"content": r["content"], "file_path": r["file_path"],
                  "header_breadcrumb": r["header_breadcrumb"], "chunk_level": r["chunk_level"],
-                 "labels": r["labels"], "score": 1.0 - r.get("_distance", 0.0)} for r in results]
+                 "labels": json.loads(r["labels"]),
+                 "score": 1.0 / (1.0 + r.get("_distance", 0.0))} for r in results]
 
     def list_documents(self) -> list[dict]:
         table = self._get_table()
         if table is None:
             return []
-        df = table.to_pandas()
+        # Project only needed columns to avoid loading large vector data
+        df = (
+            table.search(None)
+            .select(["file_path", "frontmatter", "labels"])
+            .to_pandas()
+        )
         docs = []
         for file_path, group in df.groupby("file_path"):
             first_row = group.iloc[0]
-            docs.append({"file_path": file_path, "frontmatter": first_row["frontmatter"],
-                         "labels": first_row["labels"], "chunk_count": len(group)})
+            docs.append({
+                "file_path": file_path,
+                "frontmatter": json.loads(first_row["frontmatter"]),
+                "labels": json.loads(first_row["labels"]),
+                "chunk_count": len(group),
+            })
         return docs
 
     def get_document(self, file_path: str) -> dict | None:
         table = self._get_table()
         if table is None:
             return None
-        df = table.to_pandas()
-        doc_chunks = df[df["file_path"] == file_path]
-        if doc_chunks.empty:
+        rows = (
+            table.search(None)
+            .where(f"file_path = '{_escape_sql_string(file_path)}'", prefilter=True)
+            .select(["content", "file_path", "frontmatter", "labels"])
+            .to_list()
+        )
+        if not rows:
             return None
-        first_row = doc_chunks.iloc[0]
-        combined_content = "\n\n".join(doc_chunks["content"].tolist())
-        return {"file_path": file_path, "content": combined_content,
-                "frontmatter": first_row["frontmatter"], "labels": first_row["labels"],
-                "chunk_count": len(doc_chunks)}
+        combined_content = "\n\n".join(r["content"] for r in rows)
+        return {
+            "file_path": file_path,
+            "content": combined_content,
+            "frontmatter": json.loads(rows[0]["frontmatter"]),
+            "labels": json.loads(rows[0]["labels"]),
+            "chunk_count": len(rows),
+        }
 
     def get_section(self, file_path: str, header_path: str) -> dict | None:
         table = self._get_table()
         if table is None:
             return None
-        df = table.to_pandas()
-        matches = df[(df["file_path"] == file_path) & (df["header_breadcrumb"] == header_path)]
-        if matches.empty:
+        rows = (
+            table.search(None)
+            .where(
+                f"file_path = '{_escape_sql_string(file_path)}'"
+                f" AND header_breadcrumb = '{_escape_sql_string(header_path)}'",
+                prefilter=True,
+            )
+            .select(["file_path", "header_breadcrumb", "content", "chunk_level"])
+            .to_list()
+        )
+        if not rows:
             return None
-        row = matches.iloc[0]
-        return {"file_path": row["file_path"], "header_breadcrumb": row["header_breadcrumb"],
-                "content": row["content"], "chunk_level": int(row["chunk_level"])}
+        row = rows[0]
+        return {
+            "file_path": row["file_path"],
+            "header_breadcrumb": row["header_breadcrumb"],
+            "content": row["content"],
+            "chunk_level": int(row["chunk_level"]),
+        }
+
+
+def _escape_sql_string(value: str) -> str:
+    """Escape single quotes in a SQL string literal."""
+    return value.replace("'", "''")

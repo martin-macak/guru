@@ -11,13 +11,13 @@ def mock_store():
     store = MagicMock()
     store.chunk_count.return_value = 100
     store.list_documents.return_value = [
-        {"file_path": "specs/auth.md", "frontmatter": '{"title": "Auth"}', "labels": '["spec"]', "chunk_count": 5},
+        {"file_path": "specs/auth.md", "frontmatter": {"title": "Auth"}, "labels": ["spec"], "chunk_count": 5},
     ]
     store.get_document.return_value = {
         "file_path": "specs/auth.md",
         "content": "# Auth\n\nOAuth flow.",
-        "frontmatter": '{"title": "Auth"}',
-        "labels": '["spec"]',
+        "frontmatter": {"title": "Auth"},
+        "labels": ["spec"],
         "chunk_count": 5,
     }
     store.get_section.return_value = {
@@ -32,7 +32,7 @@ def mock_store():
             "file_path": "specs/auth.md",
             "header_breadcrumb": "Auth > OAuth",
             "chunk_level": 2,
-            "labels": '["spec"]',
+            "labels": ["spec"],
             "score": 0.95,
         },
     ]
@@ -121,5 +121,10 @@ def test_search(client):
 
 
 def test_search_with_filters(client):
-    resp = client.post("/search", json={"query": "auth", "n_results": 5, "filters": {"label": "spec"}})
+    resp = client.post("/search", json={"query": "auth", "n_results": 5, "filters": {"labels": "spec"}})
     assert resp.status_code == 200
+
+
+def test_search_with_disallowed_filter(client):
+    resp = client.post("/search", json={"query": "auth", "filters": {"arbitrary_col": "value"}})
+    assert resp.status_code == 400

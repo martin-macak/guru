@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -42,13 +43,19 @@ class GuruClient:
         })
 
     async def list_documents(self, filters: dict | None = None) -> list:
-        return await self._get("/documents")
+        path = "/documents"
+        if filters:
+            path = f"{path}?{urlencode(filters)}"
+        return await self._get(path)
 
     async def get_document(self, file_path: str) -> dict:
-        return await self._get(f"/documents/{file_path}")
+        encoded = quote(file_path, safe="")
+        return await self._get(f"/documents/{encoded}")
 
     async def get_section(self, file_path: str, header_path: str) -> dict:
-        return await self._get(f"/documents/{file_path}/sections/{header_path}")
+        encoded_fp = quote(file_path, safe="")
+        encoded_hp = quote(header_path, safe="")
+        return await self._get(f"/documents/{encoded_fp}/sections/{encoded_hp}")
 
     async def trigger_index(self, path: str | None = None) -> dict:
         return await self._post("/index", {"path": path})

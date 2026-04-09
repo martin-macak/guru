@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from guru_server.api.models import SearchResultOut
 
 router = APIRouter()
+
+# Only allow filtering on these known columns to prevent injection
+_ALLOWED_FILTER_COLUMNS = {"labels"}
 
 
 class SearchBody(BaseModel):
@@ -21,9 +24,17 @@ async def search(body: SearchBody, request: Request):
 
     where = None
     if body.filters:
+        unknown = set(body.filters) - _ALLOWED_FILTER_COLUMNS
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported filter columns: {sorted(unknown)}. Allowed: {sorted(_ALLOWED_FILTER_COLUMNS)}",
+            )
         conditions = []
         for key, value in body.filters.items():
-            conditions.append(f"{key} LIKE '%{value}%'")
+            # Escape single quotes in value to prevent SQL injection
+            safe_value = value.replace("'", "''")
+            conditions.append(f"{key} LIKE '%{safe_value}%'")
         where = " AND ".join(conditions)
 
     return store.search(

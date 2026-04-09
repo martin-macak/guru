@@ -24,8 +24,18 @@ class OllamaEmbedder:
         return response.json()["embedding"]
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        results = []
-        for text in texts:
-            vec = await self.embed(text)
-            results.append(vec)
-        return results
+        """Embed multiple texts reusing a single HTTP client for efficiency."""
+        async with httpx.AsyncClient() as client:
+            results = []
+            for text in texts:
+                response = await client.post(
+                    f"{self.base_url}/api/embeddings",
+                    json={"model": self.model, "prompt": text},
+                    timeout=30.0,
+                )
+                if response.status_code != 200:
+                    raise EmbeddingError(
+                        f"Ollama embedding failed ({response.status_code}): {response.text}"
+                    )
+                results.append(response.json()["embedding"])
+            return results

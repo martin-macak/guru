@@ -39,10 +39,8 @@ class MarkdownParser(DocumentParser):
 
         # Determine chunking config
         split_level = None
-        max_tokens = None
         if rule.chunking is not None:
             split_level = rule.chunking.split_level  # e.g. "h2" or "h3"
-            max_tokens = rule.chunking.max_tokens
 
         chunks: list[Chunk] = []
         for i, node in enumerate(nodes):
@@ -50,9 +48,6 @@ class MarkdownParser(DocumentParser):
             chunk_level = self._infer_level(header_breadcrumb)
             chunk_id = hashlib.sha256(f"{file_path}:{header_breadcrumb}:{i}".encode()).hexdigest()[:16]
             content = node.get_content()
-            metadata: dict = {}
-            if max_tokens is not None:
-                metadata["max_tokens"] = max_tokens
             chunks.append(Chunk(
                 content=content,
                 file_path=str(file_path),

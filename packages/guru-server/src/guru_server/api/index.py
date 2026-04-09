@@ -1,13 +1,15 @@
-import fnmatch
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from guru_server.api.models import IndexOut
 
 router = APIRouter()
+
+# Patterns containing '**' require Path.glob(); fnmatch does not support recursive '**'.
+# We keep exclude patterns as-is and apply them via glob subtraction (see below).
 
 
 class IndexBody(BaseModel):
@@ -19,19 +21,30 @@ async def trigger_index(body: IndexBody, request: Request):
     store = request.app.state.store
     embedder = request.app.state.embedder
     config = request.app.state.config
-    project_root = request.app.state.project_root
+    project_root = Path(request.app.state.project_root).resolve()
 
-    target = Path(body.path) if body.path else Path(project_root)
+    if body.path:
+        target = (project_root / body.path).resolve()
+        # Prevent path traversal: target must be inside project_root
+        try:
+            target.relative_to(project_root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="path must be within the project root")
+    else:
+        target = project_root
 
     from guru_server.ingestion.markdown import MarkdownParser
     parser = MarkdownParser()
 
-    # Build exclude patterns
-    exclude_patterns = [r.match.glob for r in config if r.exclude]
+    # Collect the set of files excluded by any exclude rule (using Path.glob for ** support)
+    excluded_files: set[Path] = set()
+    for rule in config:
+        if rule.exclude:
+            excluded_files.update(target.glob(rule.match.glob))
 
-    # Collect files by globbing each include rule directly
+    # Collect files by globbing each include rule
     all_chunks = []
-    seen_files: set[str] = set()
+    seen_files: set[Path] = set()
 
     for rule in config:
         if rule.exclude:
@@ -39,15 +52,17 @@ async def trigger_index(body: IndexBody, request: Request):
         for file_path in target.glob(rule.match.glob):
             if not file_path.is_file():
                 continue
-            rel = str(file_path.relative_to(target))
-            if rel in seen_files:
+            if file_path in excluded_files:
                 continue
-            # Check exclude rules
-            if any(fnmatch.fnmatch(rel, ep) for ep in exclude_patterns):
+            if file_path in seen_files:
                 continue
             if parser.supports(file_path):
-                seen_files.add(rel)
+                seen_files.add(file_path)
                 chunks = parser.parse(file_path, rule)
+                # Store paths relative to project_root for portability
+                rel_path = str(file_path.relative_to(project_root))
+                for chunk in chunks:
+                    chunk.file_path = rel_path
                 all_chunks.extend(chunks)
 
     if all_chunks:
