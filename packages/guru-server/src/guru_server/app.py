@@ -23,5 +23,6 @@ def create_app(
     app.state.embedder = embedder
     app.state.config = config or []
     app.state.project_root = project_root or "."
+    app.state.last_indexed = None
     app.include_router(api_router)
     return app

@@ -57,9 +57,24 @@ def test_get_status(client):
     resp = client.get("/status")
     assert resp.status_code == 200
     data = resp.json()
-    assert "server_running" in data
     assert data["server_running"] is True
     assert data["chunk_count"] == 100
+    assert data["document_count"] == 1
+    assert data["last_indexed"] is None
+    assert data["ollama_available"] is True
+    assert data["model_loaded"] is True
+
+
+def test_last_indexed_set_after_index(mock_store, mock_embedder):
+    app = create_app(store=mock_store, embedder=mock_embedder)
+    with TestClient(app) as c:
+        status_before = c.get("/status").json()
+        assert status_before["last_indexed"] is None
+
+        c.post("/index", json={})
+
+        status_after = c.get("/status").json()
+        assert status_after["last_indexed"] is not None
 
 
 def test_list_documents(client):

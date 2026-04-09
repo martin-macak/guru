@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from guru_server.api.models import SearchResultOut
+
 router = APIRouter()
 
 
@@ -10,7 +12,7 @@ class SearchBody(BaseModel):
     filters: dict[str, str] = Field(default_factory=dict)
 
 
-@router.post("/search")
+@router.post("/search", response_model=list[SearchResultOut])
 async def search(body: SearchBody, request: Request):
     store = request.app.state.store
     embedder = request.app.state.embedder

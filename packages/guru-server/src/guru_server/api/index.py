@@ -1,8 +1,11 @@
 import fnmatch
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
+
+from guru_server.api.models import IndexOut
 
 router = APIRouter()
 
@@ -11,7 +14,7 @@ class IndexBody(BaseModel):
     path: str | None = None
 
 
-@router.post("/index")
+@router.post("/index", response_model=IndexOut)
 async def trigger_index(body: IndexBody, request: Request):
     store = request.app.state.store
     embedder = request.app.state.embedder
@@ -51,6 +54,8 @@ async def trigger_index(body: IndexBody, request: Request):
         texts = [chunk.content for chunk in all_chunks]
         vectors = await embedder.embed_batch(texts)
         store.add_chunks(all_chunks, vectors)
+
+    request.app.state.last_indexed = datetime.now(timezone.utc)
 
     return {
         "indexed": len(all_chunks),
