@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 import click
@@ -34,7 +35,7 @@ def _run(coro):
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.0")
+@click.version_option(version=pkg_version("guru-cli"))
 @click.pass_context
 def cli(ctx):
     """Guru CLI — local knowledge base manager."""
