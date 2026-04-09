@@ -69,7 +69,7 @@ class VectorStore:
         results = query.to_list()
         return [{"content": r["content"], "file_path": r["file_path"],
                  "header_breadcrumb": r["header_breadcrumb"], "chunk_level": r["chunk_level"],
-                 "labels": json.loads(r["labels"]),
+                 "labels": _parse_json_list(r["labels"]),
                  "score": 1.0 / (1.0 + r.get("_distance", 0.0))} for r in results]
 
     def list_documents(self) -> list[dict]:
@@ -87,8 +87,8 @@ class VectorStore:
             first_row = group.iloc[0]
             docs.append({
                 "file_path": file_path,
-                "frontmatter": json.loads(first_row["frontmatter"]),
-                "labels": json.loads(first_row["labels"]),
+                "frontmatter": _parse_json_dict(first_row["frontmatter"]),
+                "labels": _parse_json_list(first_row["labels"]),
                 "chunk_count": len(group),
             })
         return docs
@@ -109,8 +109,8 @@ class VectorStore:
         return {
             "file_path": file_path,
             "content": combined_content,
-            "frontmatter": json.loads(rows[0]["frontmatter"]),
-            "labels": json.loads(rows[0]["labels"]),
+            "frontmatter": _parse_json_dict(rows[0]["frontmatter"]),
+            "labels": _parse_json_list(rows[0]["labels"]),
             "chunk_count": len(rows),
         }
 
@@ -137,6 +137,24 @@ class VectorStore:
             "content": row["content"],
             "chunk_level": int(row["chunk_level"]),
         }
+
+
+def _parse_json_list(value: str) -> list:
+    """Parse a JSON-encoded list, returning empty list on error."""
+    try:
+        result = json.loads(value)
+        return result if isinstance(result, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _parse_json_dict(value: str) -> dict:
+    """Parse a JSON-encoded dict, returning empty dict on error."""
+    try:
+        result = json.loads(value)
+        return result if isinstance(result, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
 
 
 def _escape_sql_string(value: str) -> str:

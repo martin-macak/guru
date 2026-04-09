@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from guru_server.api.models import SearchResultOut
+from guru_server.storage import _escape_sql_string
 
 router = APIRouter()
 
@@ -32,9 +33,7 @@ async def search(body: SearchBody, request: Request):
             )
         conditions = []
         for key, value in body.filters.items():
-            # Escape single quotes in value to prevent SQL injection
-            safe_value = value.replace("'", "''")
-            conditions.append(f"{key} LIKE '%{safe_value}%'")
+            conditions.append(f"{key} LIKE '%{_escape_sql_string(value)}%'")
         where = " AND ".join(conditions)
 
     return store.search(

@@ -175,7 +175,7 @@ def list_docs():
 @cli.command()
 def config():
     """Show resolved configuration with provenance."""
-    from guru_server.config import load_rules, merge_rules, DEFAULT_RULES
+    from guru_core.config import load_rules, merge_rules, DEFAULT_RULES
 
     guru_root = Path.cwd()
     try:

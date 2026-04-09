@@ -26,9 +26,7 @@ async def trigger_index(body: IndexBody, request: Request):
     if body.path:
         target = (project_root / body.path).resolve()
         # Prevent path traversal: target must be inside project_root
-        try:
-            target.relative_to(project_root)
-        except ValueError:
+        if not target.is_relative_to(project_root):
             raise HTTPException(status_code=400, detail="path must be within the project root")
     else:
         target = project_root
