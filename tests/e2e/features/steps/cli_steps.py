@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -22,7 +23,7 @@ def _run_cli(args: list[str], cwd: Path) -> tuple[int, str]:
         text=True,
         cwd=str(cwd),
         env=os.environ.copy(),
-        timeout=30,
+        timeout=60,
     )
     return result.returncode, result.stdout + result.stderr
 
@@ -40,9 +41,25 @@ def step_project_exists(context):
     assert (context.project_dir / "guru.json").is_file(), "guru.json does not exist"
 
 
+@given("a guru project with topically distinct documents")
+def step_semantic_project_exists(context):
+    """Semantic project dir is created in environment.py before_feature."""
+    assert context.project_dir.exists(), "Project directory was not created"
+    assert (context.project_dir / "guides").is_dir(), "guides/ does not exist"
+    assert (context.project_dir / "references").is_dir(), "references/ does not exist"
+    assert (context.project_dir / "notes").is_dir(), "notes/ does not exist"
+
+
 @given("the guru server is running")
 def step_server_running(context):
     """Server is started in environment.py before_feature."""
+    sock = context.project_dir / ".guru" / "guru.sock"
+    assert sock.exists(), f"Server socket not found at {sock}"
+
+
+@given("the guru server is running with real embeddings")
+def step_server_running_real(context):
+    """Server with real Ollama is started in environment.py before_feature."""
     sock = context.project_dir / ".guru" / "guru.sock"
     assert sock.exists(), f"Server socket not found at {sock}"
 
@@ -98,6 +115,26 @@ def step_list_and_pick(context, fragment):
     assert False, f"'{fragment}' not found in list output:\n{out}"
 
 
+@when('I get the document containing "{fragment}"')
+def step_get_doc_containing(context, fragment):
+    """List documents, find one matching fragment, and get its full JSON."""
+    code, list_out = _run_cli(["list"], cwd=context.project_dir)
+    assert code == 0, f"List failed:\n{list_out}"
+
+    doc_path = None
+    for line in list_out.splitlines():
+        if fragment in line:
+            doc_path = line.strip().split(" ")[0]
+            break
+    assert doc_path is not None, (
+        f"No document containing '{fragment}' in list output:\n{list_out}"
+    )
+
+    code, out = _run_cli(["doc", doc_path], cwd=context.project_dir)
+    context.last_exit_code = code
+    context.last_output = out
+
+
 # ---------------------------------------------------------------------------
 # THEN steps
 # ---------------------------------------------------------------------------
@@ -121,4 +158,71 @@ def step_output_contains(context, text):
 def step_output_not_contains(context, text):
     assert text not in context.last_output, (
         f"Did not expect '{text}' in output:\n{context.last_output}"
+    )
+
+
+@then('the first result contains "{alternatives}"')
+def step_first_result_contains_alternatives(context, alternatives):
+    """Check that the first search result contains at least one of the words.
+
+    alternatives is a string like: cooking" or "recipe" or "ingredient
+    (behave parses the outer quotes, inner quotes are literal)
+    """
+    keywords = [w.strip().strip('"') for w in alternatives.split(" or ")]
+
+    # Extract the first result block from the search output
+    lines = context.last_output.splitlines()
+    first_block = []
+    in_result = False
+    for line in lines:
+        if "--- Result 1" in line:
+            in_result = True
+            continue
+        if in_result and "--- Result 2" in line:
+            break
+        if in_result:
+            first_block.append(line)
+
+    first_text = "\n".join(first_block).lower()
+    assert first_text, f"No Result 1 found in output:\n{context.last_output}"
+
+    matched = [kw for kw in keywords if kw.lower() in first_text]
+    assert matched, (
+        f"First result does not contain any of {keywords}.\n"
+        f"First result text:\n{first_text}"
+    )
+
+
+@then('the document has label "{label}"')
+def step_doc_has_label(context, label):
+    """Verify the JSON output from 'guru doc' contains the expected label."""
+    assert label in context.last_output, (
+        f"Label '{label}' not found in document output:\n{context.last_output}"
+    )
+
+
+@then('the search results contain label "{label}"')
+def step_search_results_contain_label(context, label):
+    """Verify the search output contains the label somewhere.
+
+    Labels are stored as JSON strings in the search results. The CLI
+    search command doesn't explicitly display labels, so we check via
+    'guru doc' on the first result's file path.
+    """
+    # Extract file path from the first search result
+    file_path = None
+    for line in context.last_output.splitlines():
+        if line.startswith("File:"):
+            file_path = line.replace("File:", "").strip()
+            break
+
+    assert file_path is not None, (
+        f"No file path found in search output:\n{context.last_output}"
+    )
+
+    # Get the document JSON and check label
+    code, out = _run_cli(["doc", file_path], cwd=context.project_dir)
+    assert code == 0, f"Failed to get doc {file_path}:\n{out}"
+    assert label in out, (
+        f"Label '{label}' not found in document for {file_path}:\n{out}"
     )
