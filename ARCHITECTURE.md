@@ -37,8 +37,10 @@ packages/
 
 - `guru-cli` depends on `guru-core`. No other internal dependency.
 - `guru-mcp` depends on `guru-core`. No other internal dependency.
-- `guru-server` has zero internal workspace dependencies.
+- `guru-server` depends on `guru-core` for shared types only. No other internal dependency.
 - `guru-core` is a lightweight SDK: `httpx` + shared types. No heavy dependencies.
+- guru-core is the canonical source of truth for all shared Pydantic models.
+  Do not duplicate types across packages.
 
 ## Server Lifecycle
 

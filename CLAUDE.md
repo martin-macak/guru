@@ -51,7 +51,7 @@ This is a uv workspace monorepo with four packages under `packages/`:
 ```
 guru-cli    -> guru-core
 guru-mcp    -> guru-core
-guru-server -> (no internal deps)
+guru-server -> guru-core (shared types only)
 guru-core   -> httpx
 ```
 
