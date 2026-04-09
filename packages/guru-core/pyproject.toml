@@ -1,26 +1,16 @@
 [project]
-name = "guru-mcp"
+name = "guru-core"
 version = "0.1.0"
-description = "Guru MCP protocol adapter"
-readme = "README.md"
-authors = [
-    { name = "Martin Macak", email = "martin.macak@gmail.com" }
-]
+description = "Guru shared client SDK and types"
 requires-python = ">=3.13"
 dependencies = [
-    "guru-core",
-    "fastmcp>=2.0",
+    "pydantic>=2.0",
+    "httpx>=0.28",
 ]
-
-[project.scripts]
-guru-mcp = "guru_mcp.server:main"
 
 [build-system]
 requires = ["uv_build>=0.10.3,<0.11.0"]
 build-backend = "uv_build"
-
-[tool.uv.sources]
-guru-core = { workspace = true }
 
 [dependency-groups]
 dev = [

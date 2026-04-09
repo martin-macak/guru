@@ -37,8 +37,10 @@ packages/
 
 - `guru-cli` depends on `guru-core`. No other internal dependency.
 - `guru-mcp` depends on `guru-core`. No other internal dependency.
-- `guru-server` has zero internal workspace dependencies.
+- `guru-server` depends on `guru-core` for shared types only. No other internal dependency.
 - `guru-core` is a lightweight SDK: `httpx` + shared types. No heavy dependencies.
+- guru-core is the canonical source of truth for all shared Pydantic models.
+  Do not duplicate types across packages.
 
 ## Server Lifecycle
 
@@ -86,3 +88,11 @@ packages/
 - Requires Python >= 3.13.
 - Managed via uv workspaces.
 - External runtime dependency: Ollama (installed separately).
+
+## Methodology: Spec-Driven
+
+- All major features must have BDD feature specs (Gherkin) as acceptance criteria.
+- All REST API endpoints must have typed Pydantic request/response models producing
+  a complete OpenAPI specification.
+- Feature files (`tests/e2e/features/*.feature`) are part of the specification.
+- Design specs and ADRs live in `docs/`.

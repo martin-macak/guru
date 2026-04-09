@@ -6,10 +6,27 @@ Guru is a local-first knowledge-base manager that indexes documents in a git rep
 serves them to AI agents via RAG over MCP. It runs entirely on a developer's MacBook
 with no cloud dependencies.
 
+## Methodology: Spec-Driven Development
+
+Everything is driven by specifications:
+- **ARCHITECTURE.md** — architecture constitution. Non-breakable rules. If code
+  contradicts it, the code is wrong. Read it before making any changes.
+- **BDD feature files** (`tests/e2e/features/*.feature`) — acceptance criteria and
+  scenarios. All major features MUST have corresponding Gherkin specs. Feature files
+  are part of the specification, not just tests.
+- **OpenAPI** — all REST API endpoints must have typed request/response models so
+  FastAPI auto-generates a complete OpenAPI spec at `/openapi.json`. Use `response_model`
+  on every endpoint.
+- **Design specs** (`docs/superpowers/specs/`) — architectural decisions and designs.
+
+When adding a feature: write the BDD feature file first, then implement.
+
 ## Architecture
 
-Read ARCHITECTURE.md before making any changes. It is the architecture constitution —
-everything in it is a fact. If code contradicts ARCHITECTURE.md, the code is wrong.
+Read ARCHITECTURE.md before making any changes. It is the **architecture constitution** —
+every statement in it is a fact and a non-breakable rule. If code contradicts
+ARCHITECTURE.md, the code is wrong. If a proposed change conflicts with ARCHITECTURE.md,
+the change must be rejected or the constitution must be amended first.
 
 ## Project Structure
 
@@ -34,7 +51,7 @@ This is a uv workspace monorepo with four packages under `packages/`:
 ```
 guru-cli    -> guru-core
 guru-mcp    -> guru-core
-guru-server -> (no internal deps)
+guru-server -> guru-core (shared types only)
 guru-core   -> httpx
 ```
 
@@ -50,6 +67,8 @@ Do not add cross-dependencies that violate this graph.
 - click (CLI commands)
 - Textual (TUI)
 - httpx (HTTP client over UDS)
+- behave (BDD e2e testing)
+- pydantic (shared types, API schemas)
 
 ## Commands
 
@@ -60,7 +79,53 @@ uv run guru-server              # run server directly
 uv run guru-mcp                 # run MCP server (stdio)
 ```
 
+## Testing
+
+```bash
+uv run pytest                       # run unit + integration tests (fast)
+uv run pytest packages/guru-core/   # run guru-core tests only
+uv run pytest packages/guru-server/ # run guru-server tests only
+uv run pytest tests/                # run integration tests
+uv run pytest --tb=short -q         # quick summary
+uv run behave tests/e2e/features/   # run BDD e2e tests (starts real server)
+```
+
+### Test types
+- **Unit tests** (pytest) — per-package under `packages/*/tests/`
+- **Integration tests** (pytest) — `tests/test_integration.py`, mocked embedder
+- **BDD e2e** (behave) — `tests/e2e/features/*.feature`, real server on UDS
+  - `knowledge_base.feature` — CLI workflow with mocked embeddings (fast)
+  - `semantic_search.feature` (`@real_ollama`) — real Ollama embeddings, verifies
+    semantic retrieval accuracy and config-driven labeling
+
+### Conventions
+- All major features must have BDD feature specs before implementation
+- Feature files are acceptance criteria — they are part of the specification
+- `@real_ollama` tag marks tests requiring a running Ollama instance
+- pytest `@pytest.mark.slow` tests are skipped by default (run with `-m slow`)
+
+## Known Gaps
+
+- API endpoints lack `response_model` annotations — OpenAPI response schemas are
+  incomplete. Fix by adding Pydantic response models to all endpoints.
+
 ## Design Docs
 
-- `docs/INIT.md` — initial ADR with technology research and decisions
-- `docs/superpowers/specs/2026-04-09-guru-architecture-design.md` — architecture design spec
+All design documents live under `docs/`, organized by type:
+- `docs/` — ADRs and top-level research (e.g. `INIT.md`)
+- `docs/superpowers/specs/` — design specs, named `YYYY-MM-DD-<topic>-design.md`
+- `docs/superpowers/plans/` — implementation plans, named `YYYY-MM-DD-<topic>.md`
+
+## Gotchas
+
+- macOS AF_UNIX socket paths have a 104-byte limit. Use short paths under `/tmp`
+  for test fixtures that create UDS sockets.
+- `fnmatch` does not support `**` recursive globs. Use `Path.glob()` instead.
+- `PurePosixPath.match()` doesn't match `**` in the middle of patterns (e.g.
+  `docs/**/*.md`). Use `Path.glob()` for recursive matching.
+- LlamaIndex `MarkdownNodeParser` stores header info in a `header_path` key
+  (slash-delimited), not `Header_1`/`Header_2` keys.
+- uv workspace packages need `[tool.uv.sources]` with `package = { workspace = true }`
+  for inter-package dependencies.
+- Root `pyproject.toml` needs `addopts = "--import-mode=importlib"` for pytest to
+  collect tests across multiple packages without `tests` package name collisions.
