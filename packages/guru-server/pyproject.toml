@@ -1,14 +1,29 @@
 [project]
 name = "guru-server"
-version = "0.1.0"
-description = "Add your description here"
+dynamic = ["version", "dependencies"]
+description = "Guru FastAPI server — owns all state (LanceDB, Ollama, ingestion)"
 readme = "README.md"
 authors = [
     { name = "Martin Macak", email = "martin.macak@gmail.com" }
 ]
 requires-python = ">=3.13"
+
+[project.scripts]
+guru-server = "guru_server.main:main"
+
+[tool.uv.sources]
+guru-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
-    "guru-core",
+    "guru-core=={{ version }}",
     "httpx>=0.28",
     "pydantic>=2.0",
     "llama-index-core>=0.14",
@@ -19,15 +34,10 @@ dependencies = [
     "uvicorn>=0.34",
 ]
 
-[project.scripts]
-guru-server = "guru_server.main:main"
-
-[tool.uv.sources]
-guru-core = { workspace = true }
-
-[build-system]
-requires = ["uv_build>=0.10.3,<0.11.0"]
-build-backend = "uv_build"
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
 
 [dependency-groups]
 dev = [
