@@ -60,6 +60,16 @@ uv run guru-server              # run server directly
 uv run guru-mcp                 # run MCP server (stdio)
 ```
 
+## Testing
+
+```bash
+uv run pytest                       # run all tests
+uv run pytest packages/guru-core/   # run guru-core tests only
+uv run pytest packages/guru-server/ # run guru-server tests only
+uv run pytest tests/                # run integration tests
+uv run pytest --tb=short -q         # quick summary
+```
+
 ## Design Docs
 
 - `docs/INIT.md` — initial ADR with technology research and decisions

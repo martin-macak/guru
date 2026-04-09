@@ -1,9 +1,19 @@
 [project]
 name = "guru"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local-first knowledge base manager with MCP interface"
 requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
 members = ["packages/*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "--import-mode=importlib"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+]
