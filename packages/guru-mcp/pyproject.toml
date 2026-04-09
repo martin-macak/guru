@@ -1,17 +1,32 @@
 [project]
 name = "guru-mcp"
 version = "0.1.0"
-description = "Add your description here"
+description = "Guru MCP protocol adapter"
 readme = "README.md"
 authors = [
     { name = "Martin Macak", email = "martin.macak@gmail.com" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "guru-core",
+    "fastmcp>=2.0",
+]
 
 [project.scripts]
-guru-mcp = "guru_mcp:main"
+guru-mcp = "guru_mcp.server:main"
 
 [build-system]
 requires = ["uv_build>=0.10.3,<0.11.0"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+guru-core = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
