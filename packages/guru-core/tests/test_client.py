@@ -332,3 +332,128 @@ class TestEnsureServer:
         assert stderr_target != subprocess.DEVNULL
         assert hasattr(stderr_target, "name")  # it's a file object
         assert "server.log" in stderr_target.name
+
+    def test_passes_log_file_arg_to_server(self, tmp_path, monkeypatch):
+        """ensure_server passes --log-file pointing to .guru/server.log."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        captured_args = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_args["cmd"] = args[0] if args else kwargs.get("args")
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        cmd = captured_args["cmd"]
+        assert "--log-file" in cmd
+        log_file_idx = cmd.index("--log-file")
+        log_file_path = cmd[log_file_idx + 1]
+        assert log_file_path == str(guru_dir / "server.log")
+
+    def test_passes_log_level_from_env(self, tmp_path, monkeypatch):
+        """ensure_server forwards GURU_LOG_LEVEL as --log-level arg."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+        monkeypatch.setenv("GURU_LOG_LEVEL", "DEBUG")
+
+        captured_args = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_args["cmd"] = args[0] if args else kwargs.get("args")
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        cmd = captured_args["cmd"]
+        assert "--log-level" in cmd
+        level_idx = cmd.index("--log-level")
+        assert cmd[level_idx + 1] == "DEBUG"
+
+    def test_stderr_redirected_in_append_mode(self, tmp_path, monkeypatch):
+        """Daemon stderr goes to server.log in append mode (not truncate)."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        captured_kwargs = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        stderr_target = captured_kwargs.get("stderr")
+        assert stderr_target is not None
+        assert hasattr(stderr_target, "mode")
+        assert "a" in stderr_target.mode
