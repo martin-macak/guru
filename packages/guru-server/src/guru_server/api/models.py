@@ -3,7 +3,10 @@
 from guru_core.types import (
     DocumentListItem,
     DocumentOut,
+    IndexAccepted,
     IndexOut,
+    JobDetail,
+    JobSummary,
     SearchResultOut,
     SectionOut,
     StatusOut,
@@ -12,7 +15,10 @@ from guru_core.types import (
 __all__ = [
     "DocumentListItem",
     "DocumentOut",
+    "IndexAccepted",
     "IndexOut",
+    "JobDetail",
+    "JobSummary",
     "SearchResultOut",
     "SectionOut",
     "StatusOut",

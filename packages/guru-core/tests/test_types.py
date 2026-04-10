@@ -1,13 +1,17 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from guru_core.types import (
     ChunkingConfig,
     DocumentInfo,
+    IndexAccepted,
+    JobDetail,
+    JobSummary,
     MatchConfig,
     Rule,
     SearchRequest,
     SearchResult,
     SectionInfo,
+    StatusOut,
     StatusResponse,
 )
 
@@ -121,3 +125,82 @@ def test_status_response_no_last_indexed():
         model_loaded=False,
     )
     assert status.last_indexed is None
+
+
+# --- New types for background indexing ---
+
+
+def test_index_accepted_model():
+    obj = IndexAccepted(job_id="abc-123", status="running", message="Indexing started")
+    assert obj.job_id == "abc-123"
+    assert obj.status == "running"
+    assert obj.message == "Indexing started"
+
+
+def test_job_summary_model():
+    obj = JobSummary(
+        job_id="abc-123",
+        status="running",
+        phase="indexing",
+        files_total=15,
+        files_processed=7,
+        files_skipped=3,
+    )
+    assert obj.job_id == "abc-123"
+    assert obj.phase == "indexing"
+
+
+def test_job_detail_model():
+    now = datetime.now(UTC)
+    obj = JobDetail(
+        job_id="abc-123",
+        job_type="index",
+        status="completed",
+        phase=None,
+        files_total=15,
+        files_processed=12,
+        files_skipped=3,
+        files_deleted=1,
+        chunks_created=48,
+        error=None,
+        created_at=now,
+        started_at=now,
+        finished_at=now,
+    )
+    assert obj.chunks_created == 48
+    assert obj.files_deleted == 1
+
+
+def test_status_out_with_current_job():
+    now = datetime.now(UTC)
+    job = JobSummary(
+        job_id="abc-123",
+        status="running",
+        phase="discovery",
+        files_total=0,
+        files_processed=0,
+        files_skipped=0,
+    )
+    status = StatusOut(
+        server_running=True,
+        document_count=5,
+        chunk_count=20,
+        last_indexed=now,
+        ollama_available=True,
+        model_loaded=True,
+        current_job=job,
+    )
+    assert status.current_job is not None
+    assert status.current_job.job_id == "abc-123"
+
+
+def test_status_out_without_current_job():
+    status = StatusOut(
+        server_running=True,
+        document_count=0,
+        chunk_count=0,
+        last_indexed=None,
+        ollama_available=True,
+        model_loaded=True,
+    )
+    assert status.current_job is None

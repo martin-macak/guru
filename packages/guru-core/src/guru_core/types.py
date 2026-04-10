@@ -72,11 +72,43 @@ class StatusOut(BaseModel):
     last_indexed: datetime | None
     ollama_available: bool
     model_loaded: bool
+    current_job: JobSummary | None = None
 
 
 class IndexOut(BaseModel):
     indexed: int
     documents: int
+
+
+class IndexAccepted(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class JobSummary(BaseModel):
+    job_id: str
+    status: str
+    phase: str | None
+    files_total: int
+    files_processed: int
+    files_skipped: int
+
+
+class JobDetail(BaseModel):
+    job_id: str
+    job_type: str
+    status: str
+    phase: str | None
+    files_total: int
+    files_processed: int
+    files_skipped: int
+    files_deleted: int
+    chunks_created: int
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
 
 
 # --- Legacy / extended models kept for backward compatibility ---
