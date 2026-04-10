@@ -373,3 +373,41 @@ def test_max_tokens_stored_as_metadata(
     # max_tokens is Phase 2 work; just verify the parse call doesn't blow up
     # and that chunks still have content
     assert all(c.content for c in chunks)
+
+
+# --- Frontmatter with non-JSON-serializable YAML types (issue #17) ---
+
+SAMPLE_MD_WITH_DATE = """\
+---
+title: Change Request
+date: 2025-01-15
+updated: 2025-06-20 14:30:00
+---
+
+# Change Request
+
+Some content here.
+"""
+
+
+def test_frontmatter_with_dates_is_json_serializable(
+    parser: MarkdownParser, tmp_path: Path, rule: Rule
+):
+    """Frontmatter containing YAML dates must be JSON-serializable (issue #17).
+
+    python-frontmatter parses YAML dates into datetime.date/datetime objects,
+    which json.dumps cannot serialize. The parser must sanitize these to strings.
+    """
+    import json
+
+    p = tmp_path / "cr_001.md"
+    p.write_text(SAMPLE_MD_WITH_DATE, encoding="utf-8")
+    chunks = parser.parse(p, rule)
+    assert chunks, "Expected at least one chunk"
+    for chunk in chunks:
+        # This must not raise TypeError
+        serialized = json.dumps(chunk.frontmatter)
+        # Verify round-trip preserves values as strings
+        restored = json.loads(serialized)
+        assert restored["title"] == "Change Request"
+        assert restored["date"] == "2025-01-15"
