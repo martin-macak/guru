@@ -74,11 +74,21 @@ def step_mcp_connected(context):
 
 @given("the knowledge base has been indexed via MCP")
 def step_index_via_rest(context):
-    """Index the knowledge base by calling the server directly via GuruClient."""
+    """Index the knowledge base by calling the server REST API directly."""
+    import time
+
     client = GuruClient(guru_root=context.project_dir)
-    result = _run(client.trigger_index())
-    assert result["indexed"] > 0, f"Indexing returned 0 chunks: {result}"
-    context.mcp_index_result = result
+    asyncio.run(client.trigger_index())
+
+    # Wait for background indexing to complete
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        status = asyncio.run(client.status())
+        if status.get("current_job") is None and status.get("chunk_count", 0) > 0:
+            break
+        time.sleep(0.3)
+    else:
+        raise RuntimeError("Indexing did not complete within timeout")
 
 
 @given('I know the file path of a document matching "{fragment}"')

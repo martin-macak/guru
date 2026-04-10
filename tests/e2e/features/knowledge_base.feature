@@ -16,8 +16,8 @@ Feature: Knowledge base management via CLI
   Scenario: Index documents from configured directories
     When I run "guru index"
     Then the command succeeds
-    And the output contains "Indexed"
-    And the output contains "3 documents"
+    And the output contains "Indexing started"
+    And the output contains "job"
 
   Scenario: List indexed documents
     Given the knowledge base has been indexed
