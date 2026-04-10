@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 
 class OllamaNotFoundError(RuntimeError):
@@ -19,6 +22,7 @@ def check_ollama_installed() -> None:
             "Install it with: brew install ollama\n"
             "Or visit: https://ollama.com"
         )
+    logger.info("Ollama found on PATH")
 
 
 def check_model_available(model: str = "nomic-embed-text") -> None:
@@ -38,14 +42,17 @@ def check_model_available(model: str = "nomic-embed-text") -> None:
         raise ModelNotFoundError(
             f"Model '{model}' is not available.\nPull it with: ollama pull {model}"
         )
+    logger.info("Model '%s' is available", model)
 
 
 def start_ollama_serve() -> subprocess.Popen | None:
     try:
         subprocess.run(["ollama", "list"], capture_output=True, text=True, check=True, timeout=5)
+        logger.info("Ollama is already running")
         return None
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         pass
+    logger.info("Starting ollama serve")
     return subprocess.Popen(
         ["ollama", "serve"],
         stdout=subprocess.DEVNULL,
