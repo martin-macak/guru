@@ -94,6 +94,28 @@ make fmt                        # auto-fix + format
 - pre-commit hooks run ruff on every commit. Run `make format` before committing.
 - Ruff rules: E, W, F, I, UP, B, SIM, RUF. Line length 99.
 
+## Naming Conventions
+
+Always follow naming conventions for GitHub PRs, Issues, and git branches:
+
+**Format:** `<type>: <description>`
+
+**Types:**
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `chore`: Maintenance tasks (dependencies, tooling, etc.)
+- `refactor`: Code refactoring without behavior change
+- `test`: Adding or updating tests
+- `perf`: Performance improvements
+- `ci`: CI/CD changes
+
+**Examples:**
+- PR/Issue: `chore: Add naming conventions to CLAUDE.md`
+- Branch: `feat/add-user-authentication`
+- PR/Issue: `fix: Handle null pointer in auth middleware`
+- Branch: `docs/update-installation-guide`
+
 ## Tooling
 
 - `mise.toml` manages Python and pre-commit versions (mise tool version manager)
