@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -10,6 +13,62 @@ from guru_server.indexer import BackgroundIndexer
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
 from guru_server.storage import VectorStore
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage server lifecycle: auto-index on startup, file watcher."""
+    watcher_task = None
+
+    # Keep a set of background tasks alive to prevent GC
+    _background_tasks: set[asyncio.Task] = set()
+
+    if app.state.indexer is not None:
+        # Auto-index on startup
+        job = app.state.job_registry.create_job()
+        logger.info("Auto-indexing on startup (job %s)", job.job_id[:8])
+
+        async def _run_startup_index():
+            nonlocal watcher_task
+            await app.state.indexer.run(job)
+            from datetime import UTC, datetime
+
+            app.state.last_indexed = datetime.now(UTC)
+
+            # Start file watcher after initial index completes
+            try:
+                from guru_server.watcher import start_watcher
+
+                async def _submit_index():
+                    new_job = app.state.job_registry.create_job()
+                    t = asyncio.create_task(app.state.indexer.run(new_job))
+                    _background_tasks.add(t)
+                    t.add_done_callback(_background_tasks.discard)
+
+                watcher_task = asyncio.create_task(
+                    start_watcher(
+                        project_root=Path(app.state.project_root),
+                        config=app.state.config,
+                        job_registry=app.state.job_registry,
+                        submit_index=_submit_index,
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to start file watcher")
+
+        startup_task = asyncio.create_task(_run_startup_index())
+        _background_tasks.add(startup_task)
+        startup_task.add_done_callback(_background_tasks.discard)
+
+    yield
+
+    # Cleanup: stop watcher
+    if watcher_task is not None:
+        watcher_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher_task
 
 
 def create_app(
@@ -28,7 +87,11 @@ def create_app(
         auto_index: If True (default), auto-index on startup and start
             the file watcher. Set to False in tests that don't need it.
     """
-    app = FastAPI(title="Guru Server", version="0.1.0")
+    app = FastAPI(
+        title="Guru Server",
+        version="0.1.0",
+        lifespan=lifespan if auto_index else None,
+    )
     app.state.store = store
     app.state.embedder = embedder
     app.state.config = config or []
