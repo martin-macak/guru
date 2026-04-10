@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class GuruClient:
@@ -22,14 +25,18 @@ class GuruClient:
 
     async def _get(self, path: str) -> dict | list:
         async with httpx.AsyncClient(transport=self._transport(), timeout=self._timeout) as client:
+            logger.debug("GET %s", path)
             resp = await client.get(f"http://localhost{path}")
+            logger.debug("GET %s -> %d", path, resp.status_code)
             if resp.is_error:
                 resp.raise_for_status()
             return resp.json()
 
     async def _post(self, path: str, json: dict) -> dict | list:
         async with httpx.AsyncClient(transport=self._transport(), timeout=self._timeout) as client:
+            logger.debug("POST %s", path)
             resp = await client.post(f"http://localhost{path}", json=json)
+            logger.debug("POST %s -> %d", path, resp.status_code)
             if resp.is_error:
                 resp.raise_for_status()
             return resp.json()

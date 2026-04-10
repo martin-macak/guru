@@ -1,3 +1,4 @@
+import logging
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -132,6 +133,23 @@ class TestGuruClient:
         assert timeout is not None, "Must set explicit timeout, not httpx default 5s"
         assert isinstance(timeout, httpx.Timeout)
         assert timeout.read is None or timeout.read > 60.0
+
+    @pytest.mark.asyncio
+    async def test_post_logs_request_at_debug(self, guru_root, monkeypatch, caplog):
+        """_post logs HTTP method, path, and response status at DEBUG level."""
+        fake_response = httpx.Response(200, json={"indexed": 5, "documents": 2})
+
+        async def fake_post(self, url, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        client = GuruClient(guru_root=guru_root)
+        with caplog.at_level(logging.DEBUG, logger="guru_core.client"):
+            await client.trigger_index()
+
+        assert any("POST /index" in r.message for r in caplog.records)
+        assert any("200" in r.message for r in caplog.records)
 
 
 class TestEnsureServer:
