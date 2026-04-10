@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -102,8 +103,9 @@ class TestEnsureServer:
 
         monkeypatch.setattr("os.kill", fake_kill)
 
-        # Mock subprocess to "start" the server
+        # Mock subprocess to "start" the server (process stays alive)
         mock_popen = MagicMock()
+        mock_popen.poll.return_value = None
         monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_popen)
 
         # Mock socket check to succeed after start
@@ -139,8 +141,10 @@ class TestEnsureServer:
             "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
         )
 
-        # Mock subprocess
-        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: MagicMock())
+        # Mock subprocess (process stays alive)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = None
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
 
         # Socket always appears immediately
         original_exists = Path.exists
@@ -182,3 +186,90 @@ class TestEnsureServer:
 
         result = _health_check("/fake/guru.sock")
         assert isinstance(result, httpx.ConnectError)
+
+    def test_early_exit_includes_server_log(self, tmp_path, monkeypatch):
+        """When the server process exits early, the error includes server log content."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        # No existing server
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        # Fake Popen that exits immediately with an error
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1  # process exited with code 1
+
+        def fake_popen(*args, **kwargs):
+            # Write error message to the log file (simulating stderr redirect)
+            log_file = kwargs.get("stderr")
+            if log_file and hasattr(log_file, "write"):
+                log_file.write("OllamaNotFoundError: Ollama is not installed or not on PATH.\n")
+                log_file.flush()
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        with pytest.raises(ServerStartError, match="Ollama is not installed"):
+            ensure_server(tmp_path, timeout=0.5)
+
+    def test_early_exit_detected_before_timeout(self, tmp_path, monkeypatch):
+        """Early process exit is detected quickly, not after the full timeout."""
+        import time
+
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        # Process that exits immediately
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1
+
+        monkeypatch.setattr("subprocess.Popen", lambda *a, **kw: mock_proc)
+
+        start = time.monotonic()
+        with pytest.raises(ServerStartError):
+            ensure_server(tmp_path, timeout=5.0)
+        elapsed = time.monotonic() - start
+
+        # Should detect early exit well before the 5s timeout
+        assert elapsed < 2.0, f"Took {elapsed:.1f}s — should detect early exit quickly"
+
+    def test_server_log_written_to_guru_dir(self, tmp_path, monkeypatch):
+        """Server stderr is redirected to .guru/server.log."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        captured_kwargs = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = 1
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        with pytest.raises(ServerStartError):
+            ensure_server(tmp_path, timeout=0.3)
+
+        # Verify stderr was directed to a file in .guru/
+        stderr_target = captured_kwargs.get("stderr")
+        assert stderr_target is not None
+        assert stderr_target != subprocess.DEVNULL
+        assert hasattr(stderr_target, "name")  # it's a file object
+        assert "server.log" in stderr_target.name

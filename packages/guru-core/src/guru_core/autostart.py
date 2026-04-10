@@ -48,14 +48,17 @@ def ensure_server(guru_root: Path, timeout: float = 5.0) -> None:
     # Clean up stale state
     _cleanup_stale(guru_dir)
 
-    # Start server
+    # Start server, capturing stderr to a log file for diagnostics
     env = os.environ.copy()
     env["GURU_PROJECT_ROOT"] = str(guru_root)
 
-    subprocess.Popen(
+    log_path = guru_dir / "server.log"
+    log_file = open(log_path, "w")  # noqa: SIM115
+
+    proc = subprocess.Popen(
         ["guru-server"],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=log_file,
         start_new_session=True,
         env=env,
     )
@@ -65,17 +68,36 @@ def ensure_server(guru_root: Path, timeout: float = 5.0) -> None:
     last_error: Exception | None = None
 
     while time.monotonic() < deadline:
+        # Detect early process exit before waiting for the full timeout
+        if proc.poll() is not None:
+            log_file.close()
+            log_tail = _read_log_tail(log_path)
+            raise ServerStartError(f"guru-server exited with code {proc.returncode}.\n{log_tail}")
+
         if sock_file.exists():
             last_error = _health_check(str(sock_file))
             if last_error is None:
+                log_file.close()
                 return
         time.sleep(0.1)
 
+    log_file.close()
+    log_tail = _read_log_tail(log_path)
     detail = f": {last_error}" if last_error is not None else ""
-    raise ServerStartError(
-        f"guru-server did not start within {timeout}s{detail}. "
-        f"Check server logs or run `guru server start` manually."
-    )
+    raise ServerStartError(f"guru-server did not start within {timeout}s{detail}.\n{log_tail}")
+
+
+def _read_log_tail(log_path: Path, max_lines: int = 20) -> str:
+    """Read the last N lines of the server log for error reporting."""
+    try:
+        text = log_path.read_text().strip()
+        if not text:
+            return "Server log is empty."
+        lines = text.splitlines()
+        tail = lines[-max_lines:]
+        return "Server log:\n" + "\n".join(tail)
+    except OSError:
+        return "Server log not available."
 
 
 def _health_check(sock_path: str) -> Exception | None:
