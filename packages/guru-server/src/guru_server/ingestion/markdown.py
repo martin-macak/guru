@@ -28,6 +28,23 @@ def _detect_content_type(content: str) -> str:
     return "text"
 
 
+def _sanitize_frontmatter(obj):
+    """Recursively convert non-JSON-serializable values to strings.
+
+    YAML parsing produces datetime.date/datetime objects that json.dumps
+    cannot handle. Convert them to ISO-format strings.
+    """
+    import datetime
+
+    if isinstance(obj, dict):
+        return {k: _sanitize_frontmatter(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_frontmatter(v) for v in obj]
+    if isinstance(obj, datetime.datetime | datetime.date):
+        return obj.isoformat()
+    return obj
+
+
 class MarkdownParser(DocumentParser):
     def supports(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in (".md", ".markdown")
@@ -35,7 +52,7 @@ class MarkdownParser(DocumentParser):
     def parse(self, file_path: Path, rule: Rule) -> list[Chunk]:
         raw = file_path.read_text(encoding="utf-8")
         post = frontmatter.loads(raw)
-        fm = dict(post.metadata)
+        fm = _sanitize_frontmatter(dict(post.metadata))
         doc = Document(text=post.content, metadata={"source": str(file_path)})
         parser = LlamaMarkdownParser()
         nodes = parser.get_nodes_from_documents([doc])
