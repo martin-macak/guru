@@ -163,7 +163,7 @@ uv run behave tests/e2e/features/        # run BDD e2e tests (serial)
 ## Design Docs
 
 All design documents live under `docs/`, organized by type:
-- `docs/` — ADRs and top-level research (e.g. `INIT.md`)
+- `docs/` — ADRs and top-level research
 - `docs/superpowers/specs/` — design specs, named `YYYY-MM-DD-<topic>-design.md`
 - `docs/superpowers/plans/` — implementation plans, named `YYYY-MM-DD-<topic>.md`
 
