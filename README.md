@@ -22,7 +22,7 @@ ollama pull nomic-embed-text
 ## Install
 
 ```bash
-uv tool install guru --extra-index-url https://martinmacak.github.io/guru/simple/
+uv tool install guru --extra-index-url https://martin-macak.github.io/guru/simple/
 ```
 
 This installs the `guru`, `guru-server`, and `guru-mcp` commands.
@@ -100,7 +100,7 @@ guru server start|stop|status
 ## Upgrade
 
 ```bash
-uv tool upgrade guru --extra-index-url https://martinmacak.github.io/guru/simple/
+uv tool upgrade guru --extra-index-url https://martin-macak.github.io/guru/simple/
 ```
 
 ## Uninstall
