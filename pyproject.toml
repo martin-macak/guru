@@ -4,6 +4,11 @@ dynamic = ["version", "dependencies"]
 description = "Local-first knowledge base manager with MCP interface"
 requires-python = ">=3.13"
 
+[project.scripts]
+guru = "guru_cli.cli:cli"
+guru-server = "guru_server.main:main"
+guru-mcp = "guru_mcp.server:main"
+
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
 build-backend = "hatchling.build"
