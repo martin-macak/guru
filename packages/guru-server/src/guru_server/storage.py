@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import lancedb
 
 from guru_server.ingestion.base import Chunk
+
+logger = logging.getLogger(__name__)
 
 VECTOR_DIM = 768
 TABLE_NAME = "chunks"
@@ -22,10 +25,12 @@ class VectorStore:
             try:
                 self._table = self.db.open_table(TABLE_NAME)
             except FileNotFoundError:
+                logger.debug("Table '%s' not found (no data indexed yet)", TABLE_NAME)
                 return None
             except Exception as exc:
                 msg = str(exc).lower()
                 if any(phrase in msg for phrase in _TABLE_NOT_FOUND_PHRASES):
+                    logger.debug("Table '%s' not found: %s", TABLE_NAME, exc)
                     return None
                 raise
         return self._table
@@ -187,6 +192,7 @@ def _parse_json_list(value: str) -> list:
         result = json.loads(value)
         return result if isinstance(result, list) else []
     except (json.JSONDecodeError, TypeError):
+        logger.warning("Failed to parse JSON list: %.100s", value)
         return []
 
 
@@ -196,6 +202,7 @@ def _parse_json_dict(value: str) -> dict:
         result = json.loads(value)
         return result if isinstance(result, dict) else {}
     except (json.JSONDecodeError, TypeError):
+        logger.warning("Failed to parse JSON dict: %.100s", value)
         return {}
 
 

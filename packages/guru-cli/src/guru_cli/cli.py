@@ -123,15 +123,44 @@ def server():
 
 
 @server.command("start")
-def server_start():
+@click.option("--foreground", is_flag=True, help="Run in foreground (no daemonization)")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default=None,
+    help="Log level",
+)
+@click.option("--log-file", type=click.Path(), default=None, help="Log file path")
+def server_start(foreground, log_level, log_file):
     """Start the guru server."""
     try:
         guru_root = find_guru_root(Path.cwd())
     except GuruNotFoundError as e:
         click.echo(str(e), err=True)
         sys.exit(1)
-    ensure_server(guru_root)
-    click.echo("Server is running.")
+
+    if foreground:
+        _run_foreground(guru_root, log_level=log_level, log_file=log_file)
+    else:
+        ensure_server(guru_root, log_level=log_level, log_file=log_file)
+        click.echo("Server is running.")
+
+
+def _run_foreground(guru_root: Path, log_level: str | None = None, log_file: str | None = None):
+    """Run the server in the current process (foreground mode)."""
+    import os
+
+    os.environ["GURU_PROJECT_ROOT"] = str(guru_root)
+
+    argv = []
+    if log_level:
+        argv.extend(["--log-level", log_level])
+    if log_file:
+        argv.extend(["--log-file", log_file])
+
+    from guru_server.main import main as server_main
+
+    server_main(argv=argv)
 
 
 @server.command("stop")

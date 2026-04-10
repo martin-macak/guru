@@ -1,3 +1,4 @@
+import logging
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -73,6 +74,82 @@ class TestGuruClient:
         results = await client.search("authentication")
         assert len(results) == 1
         assert results[0]["file_path"] == "auth.md"
+
+    @pytest.mark.asyncio
+    async def test_post_sets_explicit_read_timeout(self, guru_root, monkeypatch):
+        """_post must set an explicit read timeout, not rely on httpx's 5s default (#14)."""
+        captured_timeouts = []
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured_timeouts.append(kwargs.get("timeout"))
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, url, **kwargs):
+                return httpx.Response(200, json={"indexed": 5, "documents": 2})
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+        client = GuruClient(guru_root=guru_root)
+        await client.trigger_index()
+
+        assert captured_timeouts, "AsyncClient should have been instantiated"
+        timeout = captured_timeouts[0]
+        assert timeout is not None, "Must set explicit timeout, not httpx default 5s"
+        assert isinstance(timeout, httpx.Timeout)
+        # Read timeout must be None (unlimited) or generous (> 60s)
+        assert timeout.read is None or timeout.read > 60.0
+
+    @pytest.mark.asyncio
+    async def test_get_sets_explicit_read_timeout(self, guru_root, monkeypatch):
+        """_get must set an explicit read timeout, not rely on httpx's 5s default (#14)."""
+        captured_timeouts = []
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured_timeouts.append(kwargs.get("timeout"))
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def get(self, url, **kwargs):
+                return httpx.Response(200, json={"server_running": True})
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+        client = GuruClient(guru_root=guru_root)
+        await client.status()
+
+        assert captured_timeouts, "AsyncClient should have been instantiated"
+        timeout = captured_timeouts[0]
+        assert timeout is not None, "Must set explicit timeout, not httpx default 5s"
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read is None or timeout.read > 60.0
+
+    @pytest.mark.asyncio
+    async def test_post_logs_request_at_debug(self, guru_root, monkeypatch, caplog):
+        """_post logs HTTP method, path, and response status at DEBUG level."""
+        fake_response = httpx.Response(200, json={"indexed": 5, "documents": 2})
+
+        async def fake_post(self, url, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        client = GuruClient(guru_root=guru_root)
+        with caplog.at_level(logging.DEBUG, logger="guru_core.client"):
+            await client.trigger_index()
+
+        assert any("POST /index" in r.message for r in caplog.records)
+        assert any("200" in r.message for r in caplog.records)
 
 
 class TestEnsureServer:
@@ -273,3 +350,128 @@ class TestEnsureServer:
         assert stderr_target != subprocess.DEVNULL
         assert hasattr(stderr_target, "name")  # it's a file object
         assert "server.log" in stderr_target.name
+
+    def test_passes_log_file_arg_to_server(self, tmp_path, monkeypatch):
+        """ensure_server passes --log-file pointing to .guru/server.log."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        captured_args = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_args["cmd"] = args[0] if args else kwargs.get("args")
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        cmd = captured_args["cmd"]
+        assert "--log-file" in cmd
+        log_file_idx = cmd.index("--log-file")
+        log_file_path = cmd[log_file_idx + 1]
+        assert log_file_path == str(guru_dir / "server.log")
+
+    def test_passes_log_level_from_env(self, tmp_path, monkeypatch):
+        """ensure_server forwards GURU_LOG_LEVEL as --log-level arg."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+        monkeypatch.setenv("GURU_LOG_LEVEL", "DEBUG")
+
+        captured_args = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_args["cmd"] = args[0] if args else kwargs.get("args")
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        cmd = captured_args["cmd"]
+        assert "--log-level" in cmd
+        level_idx = cmd.index("--log-level")
+        assert cmd[level_idx + 1] == "DEBUG"
+
+    def test_stderr_redirected_in_append_mode(self, tmp_path, monkeypatch):
+        """Daemon stderr goes to server.log in append mode (not truncate)."""
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        pid_file = guru_dir / "guru.pid"
+        pid_file.write_text("99999")
+
+        monkeypatch.setattr(
+            "os.kill", lambda pid, sig: (_ for _ in ()).throw(ProcessLookupError())
+        )
+
+        captured_kwargs = {}
+
+        def fake_popen(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            mock_proc = MagicMock()
+            mock_proc.poll.return_value = None
+            return mock_proc
+
+        monkeypatch.setattr("subprocess.Popen", fake_popen)
+
+        original_exists = Path.exists
+        call_count = 0
+
+        def fake_exists(self):
+            nonlocal call_count
+            if self.name == "guru.sock":
+                call_count += 1
+                return call_count > 1
+            return original_exists(self)
+
+        monkeypatch.setattr(Path, "exists", fake_exists)
+        monkeypatch.setattr("guru_core.autostart._health_check", lambda sock_path: None)
+
+        ensure_server(tmp_path)
+
+        stderr_target = captured_kwargs.get("stderr")
+        assert stderr_target is not None
+        assert hasattr(stderr_target, "mode")
+        assert "a" in stderr_target.mode

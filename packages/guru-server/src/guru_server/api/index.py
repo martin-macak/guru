@@ -1,3 +1,5 @@
+import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -5,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from guru_server.api.models import IndexOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -18,6 +22,7 @@ class IndexBody(BaseModel):
 
 @router.post("/index", response_model=IndexOut)
 async def trigger_index(body: IndexBody, request: Request):
+    logger.info("Indexing requested (path=%s)", body.path or "project root")
     store = request.app.state.store
     embedder = request.app.state.embedder
     config = request.app.state.config
@@ -70,8 +75,22 @@ async def trigger_index(body: IndexBody, request: Request):
         store.delete_files(indexed_paths)
 
         texts = [chunk.content for chunk in all_chunks]
-        vectors = await embedder.embed_batch(texts)
+        t0 = time.monotonic()
+        try:
+            vectors = await embedder.embed_batch(texts)
+        except Exception:
+            logger.exception("Embedding failed during indexing")
+            raise
         store.add_chunks(all_chunks, vectors)
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "Indexing complete: %d chunks from %d documents in %.1fs",
+            len(all_chunks),
+            len({c.file_path for c in all_chunks}),
+            elapsed,
+        )
+    else:
+        logger.info("Indexing complete: no documents matched")
 
     request.app.state.last_indexed = datetime.now(UTC)
 

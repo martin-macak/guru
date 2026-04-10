@@ -7,6 +7,7 @@ from guru_core.config import (
     resolve_config,
 )
 from guru_core.discovery import GuruNotFoundError, find_guru_root
+from guru_core.log import setup_logging
 from guru_core.types import (
     ChunkingConfig,
     DocumentInfo,
@@ -48,4 +49,5 @@ __all__ = [
     "load_rules",
     "merge_rules",
     "resolve_config",
+    "setup_logging",
 ]

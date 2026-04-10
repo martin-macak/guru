@@ -25,13 +25,13 @@ def _cleanup_stale(guru_dir: Path) -> None:
     (guru_dir / "guru.pid").unlink(missing_ok=True)
 
 
-def ensure_server(guru_root: Path, timeout: float = 5.0) -> None:
-    """Ensure the guru server is running.
-
-    If the server is running (valid PID, socket exists), return immediately.
-    If stale state is detected, clean up and restart.
-    If no server is running, start one.
-    """
+def ensure_server(
+    guru_root: Path,
+    timeout: float = 5.0,
+    log_level: str | None = None,
+    log_file: str | None = None,
+) -> None:
+    """Ensure the guru server is running."""
     guru_dir = guru_root / ".guru"
     pid_file = guru_dir / "guru.pid"
     sock_file = guru_dir / "guru.sock"
@@ -41,34 +41,38 @@ def ensure_server(guru_root: Path, timeout: float = 5.0) -> None:
         try:
             pid = int(pid_file.read_text().strip())
             if _is_pid_alive(pid):
-                return  # Server is running
+                return
         except (ValueError, OSError):
             pass
 
-    # Clean up stale state
     _cleanup_stale(guru_dir)
 
-    # Start server, capturing stderr to a log file for diagnostics
     env = os.environ.copy()
     env["GURU_PROJECT_ROOT"] = str(guru_root)
 
+    # Build server command with logging args
+    log_file_resolved = log_file or str(guru_dir / "server.log")
+    cmd = ["guru-server", "--log-file", log_file_resolved]
+    log_level_resolved = log_level or os.environ.get("GURU_LOG_LEVEL")
+    if log_level_resolved:
+        cmd.extend(["--log-level", log_level_resolved])
+
+    # Redirect stderr to server.log in append mode as safety net for early crashes
     log_path = guru_dir / "server.log"
-    log_file = open(log_path, "w")  # noqa: SIM115
+    log_file = open(log_path, "a")  # noqa: SIM115
 
     proc = subprocess.Popen(
-        ["guru-server"],
+        cmd,
         stdout=subprocess.DEVNULL,
         stderr=log_file,
         start_new_session=True,
         env=env,
     )
 
-    # Wait for socket to appear, then verify server is healthy via GET /status
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
 
     while time.monotonic() < deadline:
-        # Detect early process exit before waiting for the full timeout
         if proc.poll() is not None:
             log_file.close()
             log_tail = _read_log_tail(log_path)
