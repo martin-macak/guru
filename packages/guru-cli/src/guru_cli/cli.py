@@ -211,11 +211,10 @@ def server_status(job_id):
 
 
 @cli.command()
-@click.argument("path", required=False)
-def index(path):
+def index():
     """Index documents in the knowledge base."""
     client = _get_client()
-    result = _run(client.trigger_index(path))
+    result = _run(client.trigger_index())
     click.echo(f"Indexing started (job {result['job_id']})")
 
 

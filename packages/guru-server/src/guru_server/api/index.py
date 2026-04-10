@@ -2,8 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
 
 from guru_server.api.models import IndexAccepted
 
@@ -15,12 +14,12 @@ router = APIRouter()
 _active_tasks: set[asyncio.Task] = set()
 
 
-class IndexBody(BaseModel):
-    path: str | None = None
-
-
 @router.post("/index", response_model=IndexAccepted)
-async def trigger_index(body: IndexBody, request: Request):
+async def trigger_index(request: Request):
+    indexer = request.app.state.indexer
+    if indexer is None:
+        raise HTTPException(status_code=503, detail="Indexer not available")
+
     registry = request.app.state.job_registry
 
     # Concurrency guard: return existing job if one is active
@@ -33,22 +32,20 @@ async def trigger_index(body: IndexBody, request: Request):
         )
 
     job = registry.create_job()
-    logger.info(
-        "Indexing requested (path=%s), job=%s", body.path or "project root", job.job_id[:8]
-    )
+    logger.info("Indexing requested, job=%s", job.job_id[:8])
 
-    # Launch background indexing task
-    indexer = request.app.state.indexer
-    if indexer is not None:
-
-        async def _run_and_update():
+    async def _run_and_update():
+        try:
             await indexer.run(job)
-            if job.status == "completed":
-                request.app.state.last_indexed = datetime.now(UTC)
+        except Exception:
+            logger.exception("Indexing failed for job %s", job.job_id[:8])
+            return
+        if job.status == "completed":
+            request.app.state.last_indexed = datetime.now(UTC)
 
-        task = asyncio.create_task(_run_and_update())
-        _active_tasks.add(task)
-        task.add_done_callback(_active_tasks.discard)
+    task = asyncio.create_task(_run_and_update())
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
 
     return IndexAccepted(
         job_id=job.job_id,

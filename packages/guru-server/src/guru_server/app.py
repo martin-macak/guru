@@ -32,7 +32,20 @@ async def lifespan(app: FastAPI):
 
         async def _run_startup_index():
             nonlocal watcher_task
-            await app.state.indexer.run(job)
+            try:
+                await app.state.indexer.run(job)
+            except Exception:
+                logger.exception("Startup indexing failed for job %s", job.job_id[:8])
+                return
+
+            if job.status != "completed":
+                logger.warning(
+                    "Startup indexing did not complete for job %s (status=%s)",
+                    job.job_id[:8],
+                    job.status,
+                )
+                return
+
             from datetime import UTC, datetime
 
             app.state.last_indexed = datetime.now(UTC)
@@ -43,7 +56,22 @@ async def lifespan(app: FastAPI):
 
                 async def _submit_index():
                     new_job = app.state.job_registry.create_job()
-                    t = asyncio.create_task(app.state.indexer.run(new_job))
+
+                    async def _run_watcher_index():
+                        try:
+                            await app.state.indexer.run(new_job)
+                        except Exception:
+                            logger.exception(
+                                "Watcher-triggered indexing failed for job %s",
+                                new_job.job_id[:8],
+                            )
+                            return
+                        if new_job.status == "completed":
+                            from datetime import UTC, datetime
+
+                            app.state.last_indexed = datetime.now(UTC)
+
+                    t = asyncio.create_task(_run_watcher_index())
                     _background_tasks.add(t)
                     t.add_done_callback(_background_tasks.discard)
 

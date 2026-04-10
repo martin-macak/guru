@@ -169,19 +169,29 @@ class BackgroundIndexer:
         content_hash = _file_hash(file_path)
         current_mtime = file_path.stat().st_mtime
 
-        # Delete old chunks if re-indexing
-        self._store.delete_file(rel_path)
-
         chunks = self._parser.parse(file_path, rule)
         for chunk in chunks:
             chunk.file_path = rel_path
 
         if not chunks:
+            # Remove any stale chunks from a previous index run
+            self._store.delete_file(rel_path)
+            # Update manifest so change detection stays accurate for empty files
+            self._manifest.upsert(
+                rel_path,
+                content_hash=content_hash,
+                mtime=current_mtime,
+                chunk_count=0,
+            )
             job.files_processed += 1
             return
 
         texts = [chunk.content for chunk in chunks]
         vectors = await self._embedder.embed_batch(texts)
+
+        # Replace old chunks only after new embeddings are ready so
+        # parse/embed failures do not destroy the previous index.
+        self._store.delete_file(rel_path)
         self._store.add_chunks(chunks, vectors)
 
         # Update manifest
