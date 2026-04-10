@@ -58,6 +58,48 @@ After `guru init`, your `.mcp.json` is configured automatically. AI agents that 
 
 The guru server starts automatically when an MCP tool is first invoked.
 
+### Configuring `.mcp.json` manually
+
+If you prefer to configure `.mcp.json` yourself (or add guru to an existing file), add the following entry under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "guru": {
+      "command": "guru-mcp"
+    }
+  }
+}
+```
+
+`guru-mcp` is installed as a binary by `uv tool install guru`. It inherits the working directory from the agent process, so it automatically finds the `.guru/` directory in the repo you are working in.
+
+If guru is not on your `PATH` (e.g. inside a uv-managed project rather than a global tool install), use the `uv run` form instead:
+
+```json
+{
+  "mcpServers": {
+    "guru": {
+      "command": "uv",
+      "args": ["run", "guru-mcp"]
+    }
+  }
+}
+```
+
+To add guru to an existing `.mcp.json` that already has other servers, just merge the `"guru"` key into the existing `"mcpServers"` object:
+
+```json
+{
+  "mcpServers": {
+    "other-server": { "command": "other-mcp" },
+    "guru": {
+      "command": "guru-mcp"
+    }
+  }
+}
+```
+
 ## Configuration
 
 Edit `guru.json` in your project root to control indexing:
