@@ -25,12 +25,12 @@ class VectorStore:
             try:
                 self._table = self.db.open_table(TABLE_NAME)
             except FileNotFoundError:
-                logger.warning("Table '%s' not found (no data indexed yet)", TABLE_NAME)
+                logger.debug("Table '%s' not found (no data indexed yet)", TABLE_NAME)
                 return None
             except Exception as exc:
                 msg = str(exc).lower()
                 if any(phrase in msg for phrase in _TABLE_NOT_FOUND_PHRASES):
-                    logger.warning("Table '%s' not found: %s", TABLE_NAME, exc)
+                    logger.debug("Table '%s' not found: %s", TABLE_NAME, exc)
                     return None
                 raise
         return self._table

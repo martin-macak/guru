@@ -25,7 +25,12 @@ def _cleanup_stale(guru_dir: Path) -> None:
     (guru_dir / "guru.pid").unlink(missing_ok=True)
 
 
-def ensure_server(guru_root: Path, timeout: float = 5.0, log_level: str | None = None) -> None:
+def ensure_server(
+    guru_root: Path,
+    timeout: float = 5.0,
+    log_level: str | None = None,
+    log_file: str | None = None,
+) -> None:
     """Ensure the guru server is running."""
     guru_dir = guru_root / ".guru"
     pid_file = guru_dir / "guru.pid"
@@ -46,7 +51,8 @@ def ensure_server(guru_root: Path, timeout: float = 5.0, log_level: str | None =
     env["GURU_PROJECT_ROOT"] = str(guru_root)
 
     # Build server command with logging args
-    cmd = ["guru-server", "--log-file", str(guru_dir / "server.log")]
+    log_file_resolved = log_file or str(guru_dir / "server.log")
+    cmd = ["guru-server", "--log-file", log_file_resolved]
     log_level_resolved = log_level or os.environ.get("GURU_LOG_LEVEL")
     if log_level_resolved:
         cmd.extend(["--log-level", log_level_resolved])

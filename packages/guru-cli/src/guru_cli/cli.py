@@ -142,7 +142,7 @@ def server_start(foreground, log_level, log_file):
     if foreground:
         _run_foreground(guru_root, log_level=log_level, log_file=log_file)
     else:
-        ensure_server(guru_root, log_level=log_level)
+        ensure_server(guru_root, log_level=log_level, log_file=log_file)
         click.echo("Server is running.")
 
 
@@ -152,22 +152,15 @@ def _run_foreground(guru_root: Path, log_level: str | None = None, log_file: str
 
     os.environ["GURU_PROJECT_ROOT"] = str(guru_root)
 
-    # Build argv for the server's arg parser
     argv = []
     if log_level:
         argv.extend(["--log-level", log_level])
     if log_file:
         argv.extend(["--log-file", log_file])
 
-    # Override sys.argv for argparse in server main
-    original_argv = sys.argv
-    sys.argv = ["guru-server", *argv]
-    try:
-        from guru_server.main import main as server_main
+    from guru_server.main import main as server_main
 
-        server_main()
-    finally:
-        sys.argv = original_argv
+    server_main(argv=argv)
 
 
 @server.command("stop")
