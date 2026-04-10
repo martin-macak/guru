@@ -204,3 +204,14 @@ def test_status_out_without_current_job():
         model_loaded=True,
     )
     assert status.current_job is None
+
+
+def test_guru_client_has_get_job_method():
+    """Verify GuruClient exposes get_job()."""
+    from pathlib import Path
+
+    from guru_core.client import GuruClient
+
+    client = GuruClient(guru_root=Path("/tmp/fake"))
+    assert hasattr(client, "get_job")
+    assert callable(client.get_job)

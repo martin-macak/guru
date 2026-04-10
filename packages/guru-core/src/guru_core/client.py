@@ -72,3 +72,6 @@ class GuruClient:
 
     async def trigger_index(self, path: str | None = None) -> dict:
         return await self._post("/index", {"path": path})
+
+    async def get_job(self, job_id: str) -> dict:
+        return await self._get(f"/jobs/{job_id}")
