@@ -71,12 +71,13 @@ class BackgroundIndexer:
                     logger.exception("[job %s] Failed to index %s", short_id, rel_path)
                     continue
 
-            # Cleanup deleted files
-            for rel_path in to_delete:
-                self._store.delete_file(rel_path)
-                self._manifest.delete_entry(rel_path)
-                job.files_deleted += 1
-                logger.info("[job %s] Deleted %s (removed from disk)", short_id, rel_path)
+            # Cleanup deleted files (batch)
+            if to_delete:
+                self._store.delete_files(to_delete)
+                self._manifest.delete_entries(to_delete)
+                job.files_deleted = len(to_delete)
+                for rel_path in to_delete:
+                    logger.info("[job %s] Deleted %s (removed from disk)", short_id, rel_path)
 
             job.status = "completed"
             job.phase = None
@@ -164,6 +165,10 @@ class BackgroundIndexer:
         self, job: Job, file_path: Path, rel_path: str, rule: Rule, short_id: str
     ) -> None:
         """Parse, embed, and store a single file."""
+        # Capture hash and mtime before parsing (avoids double read)
+        content_hash = _file_hash(file_path)
+        current_mtime = file_path.stat().st_mtime
+
         # Delete old chunks if re-indexing
         self._store.delete_file(rel_path)
 
@@ -180,11 +185,9 @@ class BackgroundIndexer:
         self._store.add_chunks(chunks, vectors)
 
         # Update manifest
-        current_hash = _file_hash(file_path)
-        current_mtime = file_path.stat().st_mtime
         self._manifest.upsert(
             rel_path,
-            content_hash=current_hash,
+            content_hash=content_hash,
             mtime=current_mtime,
             chunk_count=len(chunks),
         )

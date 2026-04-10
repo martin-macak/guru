@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -9,6 +10,9 @@ from guru_server.api.models import IndexAccepted
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Prevent background tasks from being garbage-collected
+_active_tasks: set[asyncio.Task] = set()
 
 
 class IndexBody(BaseModel):
@@ -33,10 +37,18 @@ async def trigger_index(body: IndexBody, request: Request):
         "Indexing requested (path=%s), job=%s", body.path or "project root", job.job_id[:8]
     )
 
-    # Launch background indexing task — store task reference to prevent GC
+    # Launch background indexing task
     indexer = request.app.state.indexer
     if indexer is not None:
-        _task = asyncio.create_task(indexer.run(job))  # noqa: RUF006
+
+        async def _run_and_update():
+            await indexer.run(job)
+            if job.status == "completed":
+                request.app.state.last_indexed = datetime.now(UTC)
+
+        task = asyncio.create_task(_run_and_update())
+        _active_tasks.add(task)
+        task.add_done_callback(_active_tasks.discard)
 
     return IndexAccepted(
         job_id=job.job_id,
