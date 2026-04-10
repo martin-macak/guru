@@ -74,6 +74,65 @@ class TestGuruClient:
         assert len(results) == 1
         assert results[0]["file_path"] == "auth.md"
 
+    @pytest.mark.asyncio
+    async def test_post_sets_explicit_read_timeout(self, guru_root, monkeypatch):
+        """_post must set an explicit read timeout, not rely on httpx's 5s default (#14)."""
+        captured_timeouts = []
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured_timeouts.append(kwargs.get("timeout"))
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, url, **kwargs):
+                return httpx.Response(200, json={"indexed": 5, "documents": 2})
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+        client = GuruClient(guru_root=guru_root)
+        await client.trigger_index()
+
+        assert captured_timeouts, "AsyncClient should have been instantiated"
+        timeout = captured_timeouts[0]
+        assert timeout is not None, "Must set explicit timeout, not httpx default 5s"
+        assert isinstance(timeout, httpx.Timeout)
+        # Read timeout must be None (unlimited) or generous (> 60s)
+        assert timeout.read is None or timeout.read > 60.0
+
+    @pytest.mark.asyncio
+    async def test_get_sets_explicit_read_timeout(self, guru_root, monkeypatch):
+        """_get must set an explicit read timeout, not rely on httpx's 5s default (#14)."""
+        captured_timeouts = []
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                captured_timeouts.append(kwargs.get("timeout"))
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def get(self, url, **kwargs):
+                return httpx.Response(200, json={"server_running": True})
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+        client = GuruClient(guru_root=guru_root)
+        await client.status()
+
+        assert captured_timeouts, "AsyncClient should have been instantiated"
+        timeout = captured_timeouts[0]
+        assert timeout is not None, "Must set explicit timeout, not httpx default 5s"
+        assert isinstance(timeout, httpx.Timeout)
+        assert timeout.read is None or timeout.read > 60.0
+
 
 class TestEnsureServer:
     def test_server_already_running(self, tmp_path, monkeypatch):

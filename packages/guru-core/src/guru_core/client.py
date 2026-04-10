@@ -9,6 +9,10 @@ import httpx
 class GuruClient:
     """Async HTTP client for the guru-server REST API over Unix domain socket."""
 
+    # Server is local (UDS) so connection should be fast, but server-side
+    # processing (e.g. Ollama embeddings during indexing) can take minutes.
+    _timeout = httpx.Timeout(5.0, read=None)
+
     def __init__(self, guru_root: Path):
         self.guru_root = guru_root
         self.socket_path = str(guru_root / ".guru" / "guru.sock")
@@ -17,14 +21,14 @@ class GuruClient:
         return httpx.AsyncHTTPTransport(uds=self.socket_path)
 
     async def _get(self, path: str) -> dict | list:
-        async with httpx.AsyncClient(transport=self._transport()) as client:
+        async with httpx.AsyncClient(transport=self._transport(), timeout=self._timeout) as client:
             resp = await client.get(f"http://localhost{path}")
             if resp.is_error:
                 resp.raise_for_status()
             return resp.json()
 
     async def _post(self, path: str, json: dict) -> dict | list:
-        async with httpx.AsyncClient(transport=self._transport()) as client:
+        async with httpx.AsyncClient(transport=self._transport(), timeout=self._timeout) as client:
             resp = await client.post(f"http://localhost{path}", json=json)
             if resp.is_error:
                 resp.raise_for_status()
