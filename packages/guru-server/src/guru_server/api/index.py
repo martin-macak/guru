@@ -1,100 +1,54 @@
+import asyncio
 import logging
-import time
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 
-from guru_server.api.models import IndexOut
+from guru_server.api.models import IndexAccepted
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Patterns containing '**' require Path.glob(); fnmatch does not support recursive '**'.
-# We keep exclude patterns as-is and apply them via glob subtraction (see below).
+# Prevent background tasks from being garbage-collected
+_active_tasks: set[asyncio.Task] = set()
 
 
-class IndexBody(BaseModel):
-    path: str | None = None
+@router.post("/index", response_model=IndexAccepted)
+async def trigger_index(request: Request):
+    indexer = request.app.state.indexer
+    if indexer is None:
+        raise HTTPException(status_code=503, detail="Indexer not available")
 
+    registry = request.app.state.job_registry
 
-@router.post("/index", response_model=IndexOut)
-async def trigger_index(body: IndexBody, request: Request):
-    logger.info("Indexing requested (path=%s)", body.path or "project root")
-    store = request.app.state.store
-    embedder = request.app.state.embedder
-    config = request.app.state.config
-    project_root = Path(request.app.state.project_root).resolve()
-
-    if body.path:
-        target = (project_root / body.path).resolve()
-        # Prevent path traversal: target must be inside project_root
-        if not target.is_relative_to(project_root):
-            raise HTTPException(status_code=400, detail="path must be within the project root")
-    else:
-        target = project_root
-
-    from guru_server.ingestion.markdown import MarkdownParser
-
-    parser = MarkdownParser()
-
-    # Collect the set of files excluded by any exclude rule (using Path.glob for ** support)
-    excluded_files: set[Path] = set()
-    for rule in config:
-        if rule.exclude:
-            excluded_files.update(target.glob(rule.match.glob))
-
-    # Collect files by globbing each include rule
-    all_chunks = []
-    seen_files: set[Path] = set()
-
-    for rule in config:
-        if rule.exclude:
-            continue
-        for file_path in target.glob(rule.match.glob):
-            if not file_path.is_file():
-                continue
-            if file_path in excluded_files:
-                continue
-            if file_path in seen_files:
-                continue
-            if parser.supports(file_path):
-                seen_files.add(file_path)
-                chunks = parser.parse(file_path, rule)
-                # Store paths relative to project_root for portability
-                rel_path = str(file_path.relative_to(project_root))
-                for chunk in chunks:
-                    chunk.file_path = rel_path
-                all_chunks.extend(chunks)
-
-    if all_chunks:
-        # Remove existing chunks for these files before re-indexing to prevent duplicates
-        indexed_paths = list({c.file_path for c in all_chunks})
-        store.delete_files(indexed_paths)
-
-        texts = [chunk.content for chunk in all_chunks]
-        t0 = time.monotonic()
-        try:
-            vectors = await embedder.embed_batch(texts)
-        except Exception:
-            logger.exception("Embedding failed during indexing")
-            raise
-        store.add_chunks(all_chunks, vectors)
-        elapsed = time.monotonic() - t0
-        logger.info(
-            "Indexing complete: %d chunks from %d documents in %.1fs",
-            len(all_chunks),
-            len({c.file_path for c in all_chunks}),
-            elapsed,
+    # Concurrency guard: return existing job if one is active
+    current = registry.current_job()
+    if current is not None:
+        return IndexAccepted(
+            job_id=current.job_id,
+            status=current.status,
+            message="Indexing already in progress",
         )
-    else:
-        logger.info("Indexing complete: no documents matched")
 
-    request.app.state.last_indexed = datetime.now(UTC)
+    job = registry.create_job()
+    logger.info("Indexing requested, job=%s", job.job_id[:8])
 
-    return {
-        "indexed": len(all_chunks),
-        "documents": len({c.file_path for c in all_chunks}),
-    }
+    async def _run_and_update():
+        try:
+            await indexer.run(job)
+        except Exception:
+            logger.exception("Indexing failed for job %s", job.job_id[:8])
+            return
+        if job.status == "completed":
+            request.app.state.last_indexed = datetime.now(UTC)
+
+    task = asyncio.create_task(_run_and_update())
+    _active_tasks.add(task)
+    task.add_done_callback(_active_tasks.discard)
+
+    return IndexAccepted(
+        job_id=job.job_id,
+        status=job.status,
+        message="Indexing started",
+    )

@@ -64,11 +64,10 @@ def step_server_running_real(context):
 
 @given("the knowledge base has been indexed")
 def step_index_kb(context):
-    """Run index once so subsequent steps have data."""
-    code, out = _run_cli(["index"], cwd=context.project_dir)
-    assert code == 0, f"Indexing failed:\n{out}"
-    context.last_exit_code = code
-    context.last_output = out
+    """Index the knowledge base via REST API and wait for completion."""
+    from environment import _trigger_and_wait_index
+
+    _trigger_and_wait_index(context.project_dir)
 
 
 # ---------------------------------------------------------------------------

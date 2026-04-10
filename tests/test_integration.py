@@ -103,6 +103,7 @@ def client(project, mock_embedder):
         embedder=mock_embedder,
         config=config,
         project_root=str(project),
+        auto_index=False,
     )
     return TestClient(app)
 
@@ -113,12 +114,22 @@ def test_full_pipeline(client):
     assert resp.status_code == 200
     assert resp.json()["chunk_count"] == 0
 
-    # 2. Index
+    # 2. Index (now async — returns job reference immediately)
     resp = client.post("/index", json={})
     assert resp.status_code == 200
     data = resp.json()
-    assert data["documents"] >= 2
-    assert data["indexed"] >= 4  # At least a few chunks per doc
+    assert "job_id" in data
+    assert data["status"] in ("queued", "running")
+
+    # Wait for background indexing to complete
+    import time
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        status = client.get("/status").json()
+        if status.get("current_job") is None and status["chunk_count"] > 0:
+            break
+        time.sleep(0.1)
 
     # 3. Status — should have data now
     resp = client.get("/status")

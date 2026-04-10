@@ -291,6 +291,7 @@ def _start_server(
         embedder=embedder,
         config=config,
         project_root=str(project_dir),
+        auto_index=False,
     )
 
     uvi_config = uvicorn.Config(app, uds=socket_path, log_level="warning")
@@ -309,6 +310,47 @@ def _start_server(
         raise RuntimeError("guru-server did not start within 10 s")
 
     return server, thread
+
+
+def _wait_for_index(project_dir: Path, timeout: float = 30.0) -> None:
+    """Poll the server status until no job is running."""
+    import httpx
+
+    socket_path = str(project_dir / ".guru" / "guru.sock")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            transport = httpx.HTTPTransport(uds=socket_path)
+            with httpx.Client(transport=transport, timeout=5.0) as client:
+                resp = client.get("http://localhost/status")
+                data = resp.json()
+                if data.get("current_job") is None:
+                    return
+        except Exception:
+            pass
+        time.sleep(0.3)
+    raise RuntimeError("Index did not complete within timeout")
+
+
+def _trigger_and_wait_index(project_dir: Path, timeout: float = 30.0) -> dict:
+    """Trigger indexing via REST and wait for completion. Returns the job detail."""
+    import httpx
+
+    socket_path = str(project_dir / ".guru" / "guru.sock")
+    transport = httpx.HTTPTransport(uds=socket_path)
+    with httpx.Client(transport=transport, timeout=5.0) as client:
+        resp = client.post("http://localhost/index", json={})
+        job_data = resp.json()
+        job_id = job_data["job_id"]
+
+    # Wait for completion
+    _wait_for_index(project_dir, timeout)
+
+    # Get final job detail
+    transport = httpx.HTTPTransport(uds=socket_path)
+    with httpx.Client(transport=transport, timeout=5.0) as client:
+        resp = client.get(f"http://localhost/jobs/{job_id}")
+        return resp.json()
 
 
 # ---------------------------------------------------------------------------

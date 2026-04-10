@@ -10,6 +10,7 @@ from guru_server.app import create_app
 def mock_store():
     store = MagicMock()
     store.chunk_count.return_value = 100
+    store.document_count.return_value = 1
     store.list_documents.return_value = [
         {
             "file_path": "specs/auth.md",
@@ -54,7 +55,7 @@ def mock_embedder():
 
 @pytest.fixture
 def client(mock_store, mock_embedder):
-    app = create_app(store=mock_store, embedder=mock_embedder)
+    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
     return TestClient(app)
 
 
@@ -68,18 +69,62 @@ def test_get_status(client):
     assert data["last_indexed"] is None
     assert data["ollama_available"] is True
     assert data["model_loaded"] is True
+    assert data["current_job"] is None
 
 
-def test_last_indexed_set_after_index(mock_store, mock_embedder):
-    app = create_app(store=mock_store, embedder=mock_embedder)
+def test_get_status_with_running_job(mock_store, mock_embedder):
+    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
+    job = app.state.job_registry.create_job()
+    job.status = "running"
+    job.phase = "indexing"
+    job.files_total = 10
+    job.files_processed = 5
+    job.files_skipped = 2
     with TestClient(app) as c:
-        status_before = c.get("/status").json()
-        assert status_before["last_indexed"] is None
+        data = c.get("/status").json()
+        assert data["current_job"] is not None
+        assert data["current_job"]["job_id"] == job.job_id
+        assert data["current_job"]["status"] == "running"
+        assert data["current_job"]["files_total"] == 10
 
-        c.post("/index", json={})
 
-        status_after = c.get("/status").json()
-        assert status_after["last_indexed"] is not None
+def test_post_index_returns_accepted(client):
+    resp = client.post("/index", json={})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "job_id" in data
+    assert data["status"] in ("queued", "running")
+    assert "message" in data
+
+
+def test_post_index_returns_existing_job(mock_store, mock_embedder):
+    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
+    job = app.state.job_registry.create_job()
+    job.status = "running"
+    with TestClient(app) as c:
+        resp = c.post("/index", json={})
+        data = resp.json()
+        assert data["job_id"] == job.job_id
+        assert data["message"] == "Indexing already in progress"
+
+
+def test_get_job_detail(mock_store, mock_embedder):
+    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
+    job = app.state.job_registry.create_job()
+    job.status = "completed"
+    job.files_total = 5
+    job.files_processed = 5
+    with TestClient(app) as c:
+        resp = c.get(f"/jobs/{job.job_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["job_id"] == job.job_id
+        assert data["status"] == "completed"
+
+
+def test_get_job_not_found(client):
+    resp = client.get("/jobs/nonexistent")
+    assert resp.status_code == 404
 
 
 def test_list_documents(client):

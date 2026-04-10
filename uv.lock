@@ -911,6 +911,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-frontmatter" },
     { name = "uvicorn" },
+    { name = "watchfiles" },
 ]
 
 [package.dev-dependencies]
@@ -931,6 +932,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-frontmatter", specifier = ">=1.1" },
     { name = "uvicorn", specifier = ">=0.34" },
+    { name = "watchfiles", specifier = ">=1.0" },
 ]
 
 [package.metadata.requires-dev]

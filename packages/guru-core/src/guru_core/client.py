@@ -70,5 +70,8 @@ class GuruClient:
         encoded_hp = quote(header_path, safe="")
         return await self._get(f"/documents/{encoded_fp}/sections/{encoded_hp}")
 
-    async def trigger_index(self, path: str | None = None) -> dict:
-        return await self._post("/index", {"path": path})
+    async def trigger_index(self) -> dict:
+        return await self._post("/index", {})
+
+    async def get_job(self, job_id: str) -> dict:
+        return await self._get(f"/jobs/{job_id}")

@@ -190,21 +190,32 @@ def server_stop():
 
 
 @server.command("status")
-def server_status():
+@click.option("--job", "job_id", default=None, help="Show details for a specific job")
+def server_status(job_id):
     """Show server status."""
     client = _get_client()
+    if job_id:
+        job = _run(client.get_job(job_id))
+        for key, value in job.items():
+            click.echo(f"  {key}: {value}")
+        return
     status = _run(client.status())
+    current_job = status.pop("current_job", None)
     for key, value in status.items():
         click.echo(f"  {key}: {value}")
+    if current_job:
+        total = current_job["files_total"]
+        processed = current_job["files_processed"]
+        skipped = current_job["files_skipped"]
+        click.echo(f"  Indexing: {processed}/{total} files processed ({skipped} skipped)")
 
 
 @cli.command()
-@click.argument("path", required=False)
-def index(path):
+def index():
     """Index documents in the knowledge base."""
     client = _get_client()
-    result = _run(client.trigger_index(path))
-    click.echo(f"Indexed {result['indexed']} chunks from {result['documents']} documents.")
+    result = _run(client.trigger_index())
+    click.echo(f"Indexing started (job {result['job_id']})")
 
 
 @cli.command()
