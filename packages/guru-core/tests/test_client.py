@@ -476,7 +476,7 @@ class TestEnsureServer:
         assert hasattr(stderr_target, "mode")
         assert "a" in stderr_target.mode
 
-    def test_default_timeout_is_at_least_15_seconds(self):
+    def test_default_timeout_sufficient_for_cold_start(self):
         """Default timeout must be >= 15s to handle cold-start on first run.
 
         On first run the server needs time to warm up (ollama model check,

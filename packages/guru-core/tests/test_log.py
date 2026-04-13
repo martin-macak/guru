@@ -51,7 +51,7 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert root.level == logging.DEBUG
 
-    def test_stderr_handler_added_when_no_log_file(self):
+    def test_stderr_handler_when_no_log_file(self):
         """stderr StreamHandler is added in interactive / CLI mode (no log file)."""
         setup_logging()
         root = logging.getLogger()
@@ -106,7 +106,7 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert len(_guru_stream_handlers(root)) == 1
 
-    def test_no_stderr_handler_when_log_file_provided(self, tmp_path):
+    def test_no_stderr_handler_when_log_file(self, tmp_path):
         """When log_file is given (daemon mode), no stderr StreamHandler is added.
 
         The subprocess redirect already captures stderr for early crashes.
