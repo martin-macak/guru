@@ -14,6 +14,7 @@ _GURU_HANDLER_ATTR = "_guru_logging"
 def setup_logging(
     level: str | None = None,
     log_file: str | None = None,
+    daemon: bool = False,
     max_bytes: int = 10 * 1024 * 1024,
     backup_count: int = 3,
 ) -> None:
@@ -23,6 +24,12 @@ def setup_logging(
         level: Log level name (DEBUG, INFO, WARNING, ERROR).
                Falls back to GURU_LOG_LEVEL env var, then INFO.
         log_file: Optional path for a RotatingFileHandler.
+        daemon: When True, suppress the stderr StreamHandler to avoid double-writes.
+                In daemon mode the parent process redirects the subprocess stderr fd
+                to the same log file, so adding a StreamHandler on top of the
+                RotatingFileHandler would write every line twice.
+                When False (default, interactive / CLI mode), stderr is always added
+                in addition to any log_file so output is visible in the terminal.
         max_bytes: Max log file size before rotation (default 10MB).
         backup_count: Number of rotated files to keep (default 3).
     """
@@ -38,12 +45,12 @@ def setup_logging(
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
 
-    # Always add stderr handler when no log file is configured (interactive / CLI mode).
-    # When a log_file IS provided (daemon mode), the subprocess redirect already captures
-    # stderr for pre-logging crashes, and the RotatingFileHandler handles structured
-    # logging.  Adding a StreamHandler on top would write every line twice (once via
-    # RotatingFileHandler, once via StreamHandler → stderr fd → same file).
-    if not log_file:
+    # Add stderr handler unless daemon mode is active.
+    # daemon=True means the subprocess stderr fd is already redirected to log_file by
+    # the parent process (autostart.py), so a StreamHandler would cause double-writes.
+    # In all other cases (foreground server, CLI, interactive use) stderr is always
+    # included so log output is visible in the terminal even when log_file is set.
+    if not daemon:
         stderr_handler = logging.StreamHandler(sys.stderr)
         stderr_handler.setFormatter(formatter)
         setattr(stderr_handler, _GURU_HANDLER_ATTR, True)
