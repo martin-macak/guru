@@ -38,11 +38,16 @@ def setup_logging(
 
     formatter = logging.Formatter(LOG_FORMAT, datefmt=DATE_FORMAT)
 
-    # Always add stderr handler
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setFormatter(formatter)
-    setattr(stderr_handler, _GURU_HANDLER_ATTR, True)
-    root.addHandler(stderr_handler)
+    # Always add stderr handler when no log file is configured (interactive / CLI mode).
+    # When a log_file IS provided (daemon mode), the subprocess redirect already captures
+    # stderr for pre-logging crashes, and the RotatingFileHandler handles structured
+    # logging.  Adding a StreamHandler on top would write every line twice (once via
+    # RotatingFileHandler, once via StreamHandler → stderr fd → same file).
+    if not log_file:
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setFormatter(formatter)
+        setattr(stderr_handler, _GURU_HANDLER_ATTR, True)
+        root.addHandler(stderr_handler)
 
     # Optionally add rotating file handler
     if log_file:

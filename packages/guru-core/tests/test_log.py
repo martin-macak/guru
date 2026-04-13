@@ -51,7 +51,8 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert root.level == logging.DEBUG
 
-    def test_stderr_handler_always_added(self):
+    def test_stderr_handler_added_when_no_log_file(self):
+        """stderr StreamHandler is added in interactive / CLI mode (no log file)."""
         setup_logging()
         root = logging.getLogger()
         assert len(_guru_stream_handlers(root)) == 1
@@ -104,3 +105,15 @@ class TestSetupLogging:
         setup_logging()
         root = logging.getLogger()
         assert len(_guru_stream_handlers(root)) == 1
+
+    def test_no_stderr_handler_when_log_file_provided(self, tmp_path):
+        """When log_file is given (daemon mode), no stderr StreamHandler is added.
+
+        The subprocess redirect already captures stderr for early crashes.
+        Adding a StreamHandler on top would cause every line to be written twice:
+        once via RotatingFileHandler and once via StreamHandler→stderr fd→same file.
+        """
+        log_file = str(tmp_path / "server.log")
+        setup_logging(log_file=log_file)
+        root = logging.getLogger()
+        assert len(_guru_stream_handlers(root)) == 0
