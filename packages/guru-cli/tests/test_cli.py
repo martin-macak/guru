@@ -37,16 +37,31 @@ def test_init_with_config(runner, tmp_path):
 
 
 def test_init_with_legacy_guru_json(runner, tmp_path):
-    """guru init warns about legacy guru.json but does not overwrite it."""
+    """guru init creates .guru.json and warns about legacy guru.json."""
     with runner.isolated_filesystem(temp_dir=tmp_path) as td:
         legacy = Path(td) / "guru.json"
         legacy.write_text(json.dumps([{"ruleName": "old", "match": {"glob": "**/*.md"}}]))
         result = runner.invoke(cli, ["init"])
         assert result.exit_code == 0
         assert "legacy guru.json" in result.output
-        # legacy file untouched, no .guru.json created
-        assert not (Path(td) / ".guru.json").exists()
+        # .guru.json is created; legacy file is untouched
+        assert (Path(td) / ".guru.json").exists()
         assert legacy.is_file()
+
+
+def test_init_warns_about_legacy_even_when_dot_guru_json_exists(runner, tmp_path):
+    """guru init warns about legacy guru.json even when .guru.json already exists."""
+    with runner.isolated_filesystem(temp_dir=tmp_path) as td:
+        dot_guru_json = Path(td) / ".guru.json"
+        dot_guru_json.write_text(
+            json.dumps([{"ruleName": "existing", "match": {"glob": "**/*.md"}}])
+        )
+        legacy = Path(td) / "guru.json"
+        legacy.write_text(json.dumps([{"ruleName": "old", "match": {"glob": "**/*.md"}}]))
+        result = runner.invoke(cli, ["init"])
+        assert result.exit_code == 0
+        assert ".guru.json already exists, skipping." in result.output
+        assert "legacy guru.json" in result.output
 
 
 def test_init_skips_existing_dot_guru_json(runner, tmp_path):

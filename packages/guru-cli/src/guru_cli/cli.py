@@ -71,14 +71,15 @@ def init():
     # 2. Create .guru.json (preferred dotfile); warn if legacy guru.json exists
     if dot_guru_json.exists():
         click.echo(".guru.json already exists, skipping.")
-    elif guru_json.exists():
+    else:
+        dot_guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
+        click.echo("Created .guru.json with default rules")
+
+    if guru_json.exists():
         click.echo(
             "Warning: legacy guru.json found. "
             "Consider renaming it to .guru.json (dotfile convention)."
         )
-    else:
-        dot_guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
-        click.echo("Created .guru.json with default rules")
 
     # 3. Merge guru into .mcp.json
     _init_mcp_json(mcp_json)
