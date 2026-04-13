@@ -47,3 +47,12 @@ def test_check_model_available_ollama_not_running():
         pytest.raises(ModelNotFoundError),
     ):
         check_model_available("nomic-embed-text")
+
+
+def test_check_model_available_ollama_timeout():
+    """check_model_available raises ModelNotFoundError when ollama list times out."""
+    with (
+        patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["ollama", "list"], 10)),
+        pytest.raises(ModelNotFoundError, match="did not respond within"),
+    ):
+        check_model_available("nomic-embed-text")
