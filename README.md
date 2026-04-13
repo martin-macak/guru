@@ -43,7 +43,7 @@ guru search "authentication flow"
 
 `guru init` creates:
 - `.guru/` — runtime directory (gitignored automatically)
-- `guru.json` — indexing rules (version-controlled)
+- `.guru.json` — indexing rules (version-controlled)
 - `.mcp.json` — MCP server configuration for AI agents
 
 ## MCP integration
