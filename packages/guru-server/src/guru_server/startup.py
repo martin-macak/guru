@@ -32,7 +32,13 @@ def check_model_available(model: str = "nomic-embed-text") -> None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=10,
         )
+    except subprocess.TimeoutExpired as exc:
+        raise ModelNotFoundError(
+            f"Ollama did not respond within 10s. Is it still starting up?\n"
+            f"Pull the model with: ollama pull {model}"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         raise ModelNotFoundError(
             f"Could not list Ollama models. Is Ollama running?\n"

@@ -51,7 +51,8 @@ class TestSetupLogging:
         root = logging.getLogger()
         assert root.level == logging.DEBUG
 
-    def test_stderr_handler_always_added(self):
+    def test_stderr_handler_when_no_log_file(self):
+        """stderr StreamHandler is added in interactive / CLI mode (no log file)."""
         setup_logging()
         root = logging.getLogger()
         assert len(_guru_stream_handlers(root)) == 1
@@ -104,3 +105,27 @@ class TestSetupLogging:
         setup_logging()
         root = logging.getLogger()
         assert len(_guru_stream_handlers(root)) == 1
+
+    def test_no_stderr_handler_when_log_file(self, tmp_path):
+        """With log_file but daemon=False (default), stderr StreamHandler IS still added.
+
+        This supports foreground runs with `--log-file` where output should be
+        visible in the terminal in addition to being written to the file.
+        """
+        log_file = str(tmp_path / "server.log")
+        setup_logging(log_file=log_file)
+        root = logging.getLogger()
+        assert len(_guru_stream_handlers(root)) == 1
+
+    def test_no_stderr_handler_in_daemon_mode(self, tmp_path):
+        """daemon=True suppresses the stderr StreamHandler to avoid double-writes.
+
+        In daemon mode, autostart.py redirects the subprocess stderr fd to
+        server.log.  Without this suppression every structured log record would
+        be written twice: once via RotatingFileHandler and once via
+        StreamHandler → stderr fd → same file.
+        """
+        log_file = str(tmp_path / "server.log")
+        setup_logging(log_file=log_file, daemon=True)
+        root = logging.getLogger()
+        assert len(_guru_stream_handlers(root)) == 0

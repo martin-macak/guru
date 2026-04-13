@@ -27,7 +27,7 @@ def _cleanup_stale(guru_dir: Path) -> None:
 
 def ensure_server(
     guru_root: Path,
-    timeout: float = 5.0,
+    timeout: float = 15.0,
     log_level: str | None = None,
     log_file: str | None = None,
 ) -> None:

@@ -475,3 +475,18 @@ class TestEnsureServer:
         assert stderr_target is not None
         assert hasattr(stderr_target, "mode")
         assert "a" in stderr_target.mode
+
+    def test_default_timeout_sufficient_for_cold_start(self):
+        """Default timeout must be >= 15s to handle cold-start on first run.
+
+        On first run the server needs time to warm up (ollama model check,
+        uvicorn startup, socket bind). 5s was too short and caused spurious
+        ServerStartError on first invocation.
+        """
+        import inspect
+
+        sig = inspect.signature(ensure_server)
+        default_timeout = sig.parameters["timeout"].default
+        assert default_timeout >= 15.0, (
+            f"Default timeout {default_timeout}s is too short for cold-start; must be >= 15s"
+        )

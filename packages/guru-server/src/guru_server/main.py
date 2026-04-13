@@ -59,7 +59,7 @@ def _uvicorn_log_config() -> dict:
 
 def main(argv: list[str] | None = None):
     args = _parse_args(argv)
-    setup_logging(level=args.log_level, log_file=args.log_file)
+    setup_logging(level=args.log_level, log_file=args.log_file, daemon=bool(args.log_file))
 
     project_root = os.environ.get("GURU_PROJECT_ROOT", os.getcwd())
     guru_dir = Path(project_root) / ".guru"
