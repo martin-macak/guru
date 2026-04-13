@@ -39,7 +39,8 @@ def resolve_config(
 
     Resolution:
     1. Load ~/.config/guru/config.json as base (global)
-    2. Load ./guru.json (preferred) or ./.guru/config.json (fallback) as local
+    2. Load ./.guru.json (preferred), ./guru.json (backwards compat),
+       or ./.guru/config.json (legacy fallback) as local
     3. Merge: local rules override global by rule_name, new names appended
     4. No config anywhere -> hardcoded defaults
     """
@@ -48,7 +49,9 @@ def resolve_config(
 
     global_rules = load_rules(global_config_dir / "config.json")
 
-    local_rules = load_rules(project_root / "guru.json")
+    local_rules = load_rules(project_root / ".guru.json")
+    if local_rules is None:
+        local_rules = load_rules(project_root / "guru.json")
     if local_rules is None:
         local_rules = load_rules(project_root / ".guru" / "config.json")
 

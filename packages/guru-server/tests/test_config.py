@@ -71,13 +71,34 @@ def test_merge_rules_local_appends_new_rules():
 # ---------------------------------------------------------------------------
 
 
+def test_resolve_config_prefers_dot_guru_json(tmp_path: Path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    global_dir = tmp_path / "global"
+    global_dir.mkdir()
+
+    # Create .guru.json (highest priority)
+    (project_root / ".guru.json").write_text(
+        json.dumps([{"ruleName": "dotfile", "match": {"glob": "dotfile/**"}}])
+    )
+    # Also create guru.json (lower priority, should be ignored)
+    (project_root / "guru.json").write_text(
+        json.dumps([{"ruleName": "legacy", "match": {"glob": "legacy/**"}}])
+    )
+
+    rules = resolve_config(project_root, global_config_dir=global_dir)
+    names = {r.rule_name for r in rules}
+    assert "dotfile" in names
+    assert "legacy" not in names
+
+
 def test_resolve_config_prefers_guru_json(tmp_path: Path):
     project_root = tmp_path / "project"
     project_root.mkdir()
     global_dir = tmp_path / "global"
     global_dir.mkdir()
 
-    # Create guru.json (preferred)
+    # Create guru.json (preferred over .guru/config.json)
     (project_root / "guru.json").write_text(
         json.dumps([{"ruleName": "preferred", "match": {"glob": "preferred/**"}}])
     )
@@ -120,7 +141,7 @@ def test_resolve_config_merges_with_global(tmp_path: Path):
     (global_dir / "config.json").write_text(
         json.dumps([{"ruleName": "global-rule", "match": {"glob": "global/**"}}])
     )
-    (project_root / "guru.json").write_text(
+    (project_root / ".guru.json").write_text(
         json.dumps([{"ruleName": "local-rule", "match": {"glob": "local/**"}}])
     )
 

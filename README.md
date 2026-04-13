@@ -43,8 +43,10 @@ guru search "authentication flow"
 
 `guru init` creates:
 - `.guru/` — runtime directory (gitignored automatically)
-- `guru.json` — indexing rules (version-controlled)
+- `.guru.json` — indexing rules (version-controlled; edit this file to configure indexing)
 - `.mcp.json` — MCP server configuration for AI agents
+
+Configuration precedence: `./.guru.json` > `./guru.json` (legacy) > `./.guru/config.json` > `~/.config/guru/config.json`
 
 ## MCP integration
 
@@ -102,7 +104,7 @@ To add guru to an existing `.mcp.json` that already has other servers, just merg
 
 ## Configuration
 
-Edit `guru.json` in your project root to control indexing:
+Edit `.guru.json` in your project root to control indexing:
 
 ```json
 [
@@ -124,7 +126,7 @@ Edit `guru.json` in your project root to control indexing:
 ]
 ```
 
-Config resolution: `./guru.json` > `./.guru/config.json` > `~/.config/guru/config.json`. Rules merge by `ruleName` (local overrides global).
+Config resolution: `./.guru.json` > `./guru.json` (legacy) > `./.guru/config.json` > `~/.config/guru/config.json`. Rules merge by `ruleName` (local overrides global).
 
 ## CLI commands
 

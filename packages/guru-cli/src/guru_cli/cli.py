@@ -55,6 +55,7 @@ def init():
     """Initialize a guru project in the current directory."""
     cwd = Path.cwd()
     guru_dir = cwd / ".guru"
+    dot_guru_json = cwd / ".guru.json"
     guru_json = cwd / "guru.json"
     mcp_json = cwd / ".mcp.json"
     gitignore = cwd / ".gitignore"
@@ -67,12 +68,18 @@ def init():
         (guru_dir / "db").mkdir()
         click.echo("Created .guru/")
 
-    # 2. Create guru.json
-    if guru_json.exists():
-        click.echo("guru.json already exists, skipping.")
+    # 2. Create .guru.json (preferred dotfile); warn if legacy guru.json exists
+    if dot_guru_json.exists():
+        click.echo(".guru.json already exists, skipping.")
     else:
-        guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
-        click.echo("Created guru.json with default rules")
+        dot_guru_json.write_text(json.dumps(DEFAULT_CONFIG, indent=2) + "\n")
+        click.echo("Created .guru.json with default rules")
+
+    if guru_json.exists():
+        click.echo(
+            "Warning: legacy guru.json found. "
+            "Consider renaming it to .guru.json (dotfile convention)."
+        )
 
     # 3. Merge guru into .mcp.json
     _init_mcp_json(mcp_json)
@@ -270,7 +277,9 @@ def config():
         guru_root = find_guru_root(Path.cwd())
 
     global_path = Path.home() / ".config" / "guru" / "config.json"
-    local_path = guru_root / "guru.json"
+    local_path = guru_root / ".guru.json"
+    if not local_path.is_file():
+        local_path = guru_root / "guru.json"
     if not local_path.is_file():
         local_path = guru_root / ".guru" / "config.json"
 
