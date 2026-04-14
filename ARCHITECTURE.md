@@ -77,6 +77,7 @@ packages/
 - stdio transport only (MVP). Universal across Claude Code, Cursor, Continue.dev.
 - MCP tools map 1:1 to REST API endpoints. The MCP server contains zero business logic.
 - MCP process inherits working directory from the agent for automatic project discovery.
+- **Developer-facing endpoint exception:** REST endpoints whose sole audience is the human developer (e.g. embedding cache management at `GET/DELETE /cache`, `POST /cache/prune`) are **not** exposed as MCP tools. Agents have no legitimate use for cache invalidation or pruning, so these operations are deliberately excluded from the MCP tool surface. The 1:1 mapping rule applies to endpoints an agent would call in normal operation (search, document read, status).
 
 ## CLI
 
