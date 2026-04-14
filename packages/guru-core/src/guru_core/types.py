@@ -73,47 +73,7 @@ class SectionOut(BaseModel):
     chunk_level: int
 
 
-class StatusOut(BaseModel):
-    server_running: bool
-    document_count: int
-    chunk_count: int
-    last_indexed: datetime | None
-    ollama_available: bool
-    model_loaded: bool
-    current_job: JobSummary | None = None
-    cache: CacheStatsOut | None = None
-
-
-class IndexOut(BaseModel):
-    indexed: int
-    documents: int
-
-
-class IndexAccepted(BaseModel):
-    job_id: str
-    status: str
-    message: str
-
-
-# --- Embedding cache models ---
-
-
-class CacheStatsOut(BaseModel):
-    path: str
-    total_entries: int
-    total_bytes: int
-    by_model: dict[str, int] = Field(default_factory=dict)
-    last_job_hits: int | None = None
-    last_job_misses: int | None = None
-    last_job_hit_rate: float | None = None
-
-
-class CacheDeleteResult(BaseModel):
-    deleted: int
-
-
-class CachePruneRequest(BaseModel):
-    older_than_ms: int = Field(ge=0)
+# --- Job models (defined before StatusOut because StatusOut references them) ---
 
 
 class JobSummary(BaseModel):
@@ -143,6 +103,49 @@ class JobDetail(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+# --- Embedding cache models (defined before StatusOut because StatusOut references CacheStatsOut) ---
+
+
+class CacheStatsOut(BaseModel):
+    path: str
+    total_entries: int
+    total_bytes: int
+    by_model: dict[str, int] = Field(default_factory=dict)
+    last_job_hits: int | None = None
+    last_job_misses: int | None = None
+    last_job_hit_rate: float | None = None
+
+
+class CacheDeleteResult(BaseModel):
+    deleted: int
+
+
+class CachePruneRequest(BaseModel):
+    older_than_ms: int = Field(ge=0)
+
+
+class StatusOut(BaseModel):
+    server_running: bool
+    document_count: int
+    chunk_count: int
+    last_indexed: datetime | None
+    ollama_available: bool
+    model_loaded: bool
+    current_job: JobSummary | None = None
+    cache: CacheStatsOut | None = None
+
+
+class IndexOut(BaseModel):
+    indexed: int
+    documents: int
+
+
+class IndexAccepted(BaseModel):
+    job_id: str
+    status: str
+    message: str
 
 
 # --- Legacy / extended models kept for backward compatibility ---
