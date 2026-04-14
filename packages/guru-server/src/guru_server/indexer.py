@@ -5,7 +5,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
-from guru_core.types import Rule
+from guru_core.types import GuruConfig, Rule
 from guru_server.ingestion.markdown import MarkdownParser
 from guru_server.jobs import Job
 from guru_server.manifest import FileManifest
@@ -30,7 +30,7 @@ class BackgroundIndexer:
         store: VectorStore,
         manifest: FileManifest,
         embedder,
-        config: list[Rule],
+        config: GuruConfig,
         project_root: Path,
     ) -> None:
         self._store = store
@@ -100,14 +100,14 @@ class BackgroundIndexer:
         """Scan files and compare against manifest. Returns (to_index, to_skip, to_delete)."""
         # Collect excluded files
         excluded_files: set[Path] = set()
-        for rule in self._config:
+        for rule in self._config.rules:
             if rule.exclude:
                 excluded_files.update(self._project_root.glob(rule.match.glob))
 
         # Collect all matched files with their rules
         seen_files: set[Path] = set()
         matched: list[tuple[Path, str, Rule]] = []
-        for rule in self._config:
+        for rule in self._config.rules:
             if rule.exclude:
                 continue
             for file_path in self._project_root.glob(rule.match.glob):

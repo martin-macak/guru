@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 import lancedb
 import pytest
 
-from guru_core.types import MatchConfig, Rule
+from guru_core.types import GuruConfig, MatchConfig, Rule
 from guru_server.indexer import BackgroundIndexer
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
@@ -42,7 +42,10 @@ def embedder():
 
 @pytest.fixture
 def config():
-    return [Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))]
+    return GuruConfig(
+        version=1,
+        rules=[Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))],
+    )
 
 
 @pytest.fixture

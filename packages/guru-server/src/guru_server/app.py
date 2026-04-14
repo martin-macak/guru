@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from guru_core.types import GuruConfig
 from guru_server.api import api_router
 from guru_server.embedding import OllamaEmbedder
 from guru_server.indexer import BackgroundIndexer
@@ -102,7 +103,7 @@ async def lifespan(app: FastAPI):
 def create_app(
     store: VectorStore | None = None,
     embedder: OllamaEmbedder | None = None,
-    config: list | None = None,
+    config: GuruConfig | None = None,
     project_root: str | None = None,
     auto_index: bool = True,
 ) -> FastAPI:
@@ -122,7 +123,7 @@ def create_app(
     )
     app.state.store = store
     app.state.embedder = embedder
-    app.state.config = config or []
+    app.state.config = config if config is not None else GuruConfig()
     app.state.project_root = project_root or "."
     app.state.last_indexed = None
     app.state.job_registry = JobRegistry()

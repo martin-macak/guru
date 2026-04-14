@@ -13,9 +13,12 @@ from guru_core.autostart import ensure_server
 from guru_core.client import GuruClient
 from guru_core.discovery import GuruNotFoundError, find_guru_root
 
-DEFAULT_CONFIG = [
-    {"ruleName": "default", "match": {"glob": "**/*.md"}},
-]
+DEFAULT_CONFIG = {
+    "version": 1,
+    "rules": [
+        {"ruleName": "default", "match": {"glob": "**/*.md"}},
+    ],
+}
 
 
 def _get_client() -> GuruClient:
@@ -270,7 +273,7 @@ def list_docs():
 @cli.command()
 def config():
     """Show resolved configuration with provenance."""
-    from guru_core.config import DEFAULT_RULES, load_rules, merge_rules
+    from guru_core.config import DEFAULT_RULES, load_config, merge_rules
 
     guru_root = Path.cwd()
     with contextlib.suppress(GuruNotFoundError):
@@ -283,29 +286,29 @@ def config():
     if not local_path.is_file():
         local_path = guru_root / ".guru" / "config.json"
 
-    global_rules = load_rules(global_path)
-    local_rules = load_rules(local_path)
+    global_cfg = load_config(global_path)
+    local_cfg = load_config(local_path)
 
     # Determine source labels before merging
     rule_source: dict[str, str] = {}
-    if global_rules:
-        for r in global_rules:
+    if global_cfg:
+        for r in global_cfg.rules:
             rule_source[r.rule_name] = str(global_path)
-    if local_rules:
-        for r in local_rules:
+    if local_cfg:
+        for r in local_cfg.rules:
             rule_source[r.rule_name] = str(local_path)  # local overrides global
 
     # Apply the same merge semantics as the server
-    if global_rules is None and local_rules is None:
+    if global_cfg is None and local_cfg is None:
         effective = list(DEFAULT_RULES)
         for r in effective:
             rule_source[r.rule_name] = "default"
-    elif global_rules is None:
-        effective = local_rules
-    elif local_rules is None:
-        effective = global_rules
+    elif global_cfg is None:
+        effective = local_cfg.rules
+    elif local_cfg is None:
+        effective = global_cfg.rules
     else:
-        effective = merge_rules(global_rules, local_rules)
+        effective = merge_rules(global_cfg.rules, local_cfg.rules)
 
     output = []
     for rule in effective:

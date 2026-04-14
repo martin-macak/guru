@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from guru_core.types import MatchConfig, Rule
-from guru_server.config import DEFAULT_RULES, load_rules, merge_rules, resolve_config
+from guru_core.types import GuruConfig, MatchConfig, Rule
+from guru_server.config import DEFAULT_RULES, load_config, load_rules, merge_rules, resolve_config
 
 # ---------------------------------------------------------------------------
 # DEFAULT_RULES
@@ -86,7 +86,7 @@ def test_resolve_config_prefers_dot_guru_json(tmp_path: Path):
         json.dumps([{"ruleName": "legacy", "match": {"glob": "legacy/**"}}])
     )
 
-    rules = resolve_config(project_root, global_config_dir=global_dir)
+    rules = resolve_config(project_root, global_config_dir=global_dir).rules
     names = {r.rule_name for r in rules}
     assert "dotfile" in names
     assert "legacy" not in names
@@ -109,7 +109,7 @@ def test_resolve_config_prefers_guru_json(tmp_path: Path):
         json.dumps([{"ruleName": "fallback", "match": {"glob": "fallback/**"}}])
     )
 
-    rules = resolve_config(project_root, global_config_dir=global_dir)
+    rules = resolve_config(project_root, global_config_dir=global_dir).rules
     names = {r.rule_name for r in rules}
     assert "preferred" in names
     assert "fallback" not in names
@@ -127,7 +127,7 @@ def test_resolve_config_falls_back_to_guru_config_json(tmp_path: Path):
         json.dumps([{"ruleName": "fallback", "match": {"glob": "fallback/**"}}])
     )
 
-    rules = resolve_config(project_root, global_config_dir=global_dir)
+    rules = resolve_config(project_root, global_config_dir=global_dir).rules
     names = {r.rule_name for r in rules}
     assert "fallback" in names
 
@@ -145,7 +145,7 @@ def test_resolve_config_merges_with_global(tmp_path: Path):
         json.dumps([{"ruleName": "local-rule", "match": {"glob": "local/**"}}])
     )
 
-    rules = resolve_config(project_root, global_config_dir=global_dir)
+    rules = resolve_config(project_root, global_config_dir=global_dir).rules
     names = {r.rule_name for r in rules}
     assert "global-rule" in names
     assert "local-rule" in names
@@ -157,7 +157,43 @@ def test_resolve_config_returns_defaults_when_no_config(tmp_path: Path):
     global_dir = tmp_path / "global"
     global_dir.mkdir()
 
-    rules = resolve_config(project_root, global_config_dir=global_dir)
-    assert len(rules) == 1
-    assert rules[0].rule_name == "default"
-    assert rules[0].match.glob == "**/*.md"
+    cfg = resolve_config(project_root, global_config_dir=global_dir)
+    assert len(cfg.rules) == 1
+    assert cfg.rules[0].rule_name == "default"
+    assert cfg.rules[0].match.glob == "**/*.md"
+
+
+def test_load_config_legacy_array_auto_wraps(tmp_path: Path):
+    config_file = tmp_path / "rules.json"
+    config_file.write_text(json.dumps([{"ruleName": "docs", "match": {"glob": "docs/**/*.md"}}]))
+    cfg = load_config(config_file)
+    assert isinstance(cfg, GuruConfig)
+    assert cfg.version == 1
+    assert len(cfg.rules) == 1
+    assert cfg.rules[0].rule_name == "docs"
+
+
+def test_load_config_object_format(tmp_path: Path):
+    config_file = tmp_path / "rules.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "rules": [{"ruleName": "docs", "match": {"glob": "docs/**/*.md"}}],
+            }
+        )
+    )
+    cfg = load_config(config_file)
+    assert cfg.version == 1
+    assert cfg.rules[0].rule_name == "docs"
+
+
+def test_load_config_empty_array(tmp_path: Path):
+    config_file = tmp_path / "rules.json"
+    config_file.write_text("[]")
+    cfg = load_config(config_file)
+    assert cfg.rules == []
+
+
+def test_load_config_returns_none_for_missing_file(tmp_path: Path):
+    assert load_config(tmp_path / "nope.json") is None

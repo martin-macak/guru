@@ -38,3 +38,17 @@ class TestOllamaEmbedder:
         assert len(results) == 2
         assert len(results[0]) == 768
         assert len(results[1]) == 768
+
+
+def test_ollama_embedder_has_model_name():
+    from guru_server.embedding import OllamaEmbedder
+
+    emb = OllamaEmbedder(model="nomic-embed-text")
+    assert emb.model_name == "nomic-embed-text"
+
+
+def test_ollama_embedder_has_dimensions():
+    from guru_server.embedding import OllamaEmbedder
+
+    emb = OllamaEmbedder(model="nomic-embed-text")
+    assert emb.dimensions == 768

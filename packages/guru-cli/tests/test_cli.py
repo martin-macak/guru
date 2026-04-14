@@ -33,7 +33,9 @@ def test_init_with_config(runner, tmp_path):
         config_file = Path(td) / ".guru.json"
         assert config_file.is_file()
         config = json.loads(config_file.read_text())
-        assert config[0]["ruleName"] == "default"
+        assert isinstance(config, dict)
+        assert config["version"] == 1
+        assert config["rules"][0]["ruleName"] == "default"
 
 
 def test_init_with_legacy_guru_json(runner, tmp_path):
