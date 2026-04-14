@@ -1,4 +1,4 @@
-import subprocess as _subprocess
+import subprocess
 from unittest.mock import AsyncMock, MagicMock
 
 import lancedb
@@ -258,9 +258,9 @@ async def test_cache_get_many_failure_falls_through(
 
 
 def _git_init(repo_dir):
-    _subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
-    _subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
-    _subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
 
 
 @pytest.fixture
@@ -274,8 +274,8 @@ def git_project(tmp_path):
     (tmp_path / ".guru").mkdir()
     (tmp_path / ".guru" / "db").mkdir()
     _git_init(tmp_path)
-    _subprocess.run(["git", "add", "docs/", ".gitignore"], cwd=tmp_path, check=True)
-    _subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "docs/", ".gitignore"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
     return tmp_path
 
 
