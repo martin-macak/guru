@@ -214,8 +214,9 @@ def test_cache_info_command(tmp_path, monkeypatch):
         runner = CliRunner()
         result = runner.invoke(cli, ["cache", "info"])
         assert result.exit_code == 0
-        assert "42" in result.output
-        assert "nomic-embed-text" in result.output
+        # Tight assertions — don't match any stray "42" in the output
+        assert "total entries: 42" in result.output
+        assert "nomic-embed-text: 42" in result.output
 
 
 def test_cache_clear_command_with_yes(tmp_path, monkeypatch):

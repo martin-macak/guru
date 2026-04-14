@@ -257,6 +257,89 @@ async def test_cache_get_many_failure_falls_through(
     assert embedder.embed_batch.await_count >= 1
 
 
+@pytest.mark.asyncio
+async def test_cache_put_many_failure_falls_through(
+    indexer_with_cache, registry, embedder, embed_cache, store
+):
+    """If cache.put_many raises, the job still completes and LanceDB gets vectors."""
+    embedder.model_name = "nomic-embed-text"
+    embedder.dimensions = 768
+    embedder.embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 768] * len(texts))
+
+    embed_cache.put_many = MagicMock(side_effect=RuntimeError("disk full"))
+
+    job = registry.create_job()
+    await indexer_with_cache.run(job)
+
+    # Job must complete despite the cache write failure
+    assert job.status == "completed"
+    assert job.files_processed >= 1
+    # Vectors reached LanceDB — chunks were embedded and stored via the fallthrough
+    assert embedder.embed_batch.await_count >= 1
+    assert store.document_count() >= 1
+
+
+@pytest.mark.asyncio
+async def test_cache_mixed_hit_miss_preserves_order(
+    indexer_with_cache, registry, embedder, embed_cache, project_dir
+):
+    """Pre-cache some chunks, leave others missing. Verify cached-hit texts are
+    never sent to the embedder, exercising the order-preserving merge logic
+    in _embed_with_cache. If `i`/`j` get swapped in the merge, embedder-fresh
+    vectors would land in cached-hit slots and this test would catch it.
+    """
+    import hashlib
+
+    from guru_core.types import MatchConfig, Rule
+    from guru_server.ingestion.markdown import MarkdownParser
+
+    embedder.model_name = "nomic-embed-text"
+    embedder.dimensions = 768
+    miss_vector = [0.99] * 768
+    embedder.embed_batch = AsyncMock(side_effect=lambda texts: [miss_vector] * len(texts))
+
+    # Pre-cache the first chunk of the first fixture file with a distinct vector
+    parser = MarkdownParser()
+    rule = Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))
+    hit_vector = np.array([0.42] * 768, dtype=np.float32)
+    all_md_files = sorted((project_dir / "docs").glob("*.md"))
+    first_file_chunks = parser.parse(all_md_files[0], rule)
+    assert first_file_chunks, "Test fixture must produce at least one chunk"
+    first_chunk_text = first_file_chunks[0].content
+    key = (hashlib.sha256(first_chunk_text.encode("utf-8")).digest(), "nomic-embed-text")
+    embed_cache.put_many([(key, hit_vector)])
+
+    job = registry.create_job()
+    await indexer_with_cache.run(job)
+
+    assert job.status == "completed"
+    assert job.cache_hits == 1
+    assert job.cache_misses >= 1
+    # The embedder must never be asked to embed a cache-hit chunk
+    for call_args in embedder.embed_batch.call_args_list:
+        embedded_texts = call_args.args[0] if call_args.args else call_args.kwargs["texts"]
+        assert first_chunk_text not in embedded_texts, (
+            "Cached chunk was incorrectly sent to the embedder — order-preserving "
+            "merge in _embed_with_cache may be broken"
+        )
+
+
+@pytest.mark.asyncio
+async def test_cache_counters_sum_to_chunks_created(
+    indexer_with_cache, registry, embedder, embed_cache
+):
+    """cache_hits + cache_misses == chunks_created after a completed job."""
+    embedder.model_name = "nomic-embed-text"
+    embedder.dimensions = 768
+    embedder.embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 768] * len(texts))
+
+    job = registry.create_job()
+    await indexer_with_cache.run(job)
+
+    assert job.status == "completed"
+    assert job.cache_hits + job.cache_misses == job.chunks_created
+
+
 def _git_init(repo_dir):
     subprocess.run(["git", "init", "-q"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)

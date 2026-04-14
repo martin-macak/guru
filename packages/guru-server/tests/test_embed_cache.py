@@ -148,3 +148,44 @@ def test_get_many_touches_accessed_at(cache: EmbeddingCache):
         "SELECT accessed_at FROM embeddings WHERE content_hash = ?", (key[0],)
     ).fetchone()[0]
     assert after > before
+
+
+def test_concurrent_access_does_not_deadlock(tmp_path: Path):
+    """Two threads reading and writing the same cache concurrently must not
+    deadlock. Guards against anyone later removing `check_same_thread=False`
+    without realizing the FastAPI threadpool relies on it.
+    """
+    import threading
+
+    cache = EmbeddingCache(db_path=tmp_path / "concurrent.db")
+    try:
+        errors: list[BaseException] = []
+
+        def writer():
+            try:
+                for i in range(50):
+                    key = _key(f"k{i}")
+                    cache.put_many([(key, np.array([float(i)], dtype=np.float32))])
+            except BaseException as exc:
+                errors.append(exc)
+
+        def reader():
+            try:
+                for i in range(50):
+                    cache.get_many([_key(f"k{i}")], expected_dim=1)
+            except BaseException as exc:
+                errors.append(exc)
+
+        t1 = threading.Thread(target=writer)
+        t2 = threading.Thread(target=reader)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+
+        assert not t1.is_alive() and not t2.is_alive(), "Threads did not finish — deadlock"
+        assert not errors, f"Unexpected errors from concurrent access: {errors}"
+        # Writer got all 50 entries in
+        assert cache.stats().total_entries == 50
+    finally:
+        cache.close()

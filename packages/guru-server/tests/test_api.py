@@ -299,3 +299,51 @@ def test_status_includes_cache_section(client, app):
     assert "cache" in data
     assert data["cache"] is not None
     assert data["cache"]["total_entries"] == 1
+
+
+def test_status_includes_last_job_hit_rate(client, app):
+    """When a completed job exists, /status reports its cache counters
+    and computed hit rate via _assemble_stats.
+    """
+    from datetime import UTC, datetime
+
+    job = app.state.job_registry.create_job()
+    job.status = "completed"
+    job.cache_hits = 7
+    job.cache_misses = 3
+    job.finished_at = datetime.now(UTC)
+
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    cache_data = resp.json()["cache"]
+    assert cache_data["last_job_hits"] == 7
+    assert cache_data["last_job_misses"] == 3
+    assert cache_data["last_job_hit_rate"] == pytest.approx(0.7)
+
+
+def test_status_last_job_hit_rate_is_none_when_no_chunks(client, app):
+    """A completed job with zero chunks (hits + misses == 0) yields a
+    null hit rate, not a division-by-zero.
+    """
+    from datetime import UTC, datetime
+
+    job = app.state.job_registry.create_job()
+    job.status = "completed"
+    job.cache_hits = 0
+    job.cache_misses = 0
+    job.finished_at = datetime.now(UTC)
+
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    cache_data = resp.json()["cache"]
+    assert cache_data["last_job_hits"] == 0
+    assert cache_data["last_job_misses"] == 0
+    assert cache_data["last_job_hit_rate"] is None
+
+
+def test_prune_cache_rejects_negative_older_than(client):
+    """CachePruneRequest has older_than_ms: int = Field(ge=0).
+    FastAPI must reject a negative value at the HTTP boundary with 422.
+    """
+    resp = client.post("/cache/prune", json={"older_than_ms": -1})
+    assert resp.status_code == 422
