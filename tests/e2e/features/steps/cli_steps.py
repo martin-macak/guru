@@ -36,7 +36,7 @@ def step_project_exists(context):
     """Project dir is created in environment.py before_feature."""
     assert context.project_dir.exists(), "Project directory was not created"
     assert (context.project_dir / ".guru").is_dir(), ".guru/ does not exist"
-    assert (context.project_dir / "guru.json").is_file(), "guru.json does not exist"
+    assert (context.project_dir / ".guru.json").is_file(), ".guru.json does not exist"
 
 
 @given("a guru project with topically distinct documents")
@@ -139,6 +139,13 @@ def step_get_doc_containing(context, fragment):
 def step_command_succeeds(context):
     assert context.last_exit_code == 0, (
         f"Command failed (exit {context.last_exit_code}):\n{context.last_output}"
+    )
+
+
+@then("the command fails")
+def step_command_fails(context):
+    assert context.last_exit_code != 0, (
+        f"Command unexpectedly succeeded (exit 0):\n{context.last_output}"
     )
 
 

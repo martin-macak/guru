@@ -12,10 +12,18 @@ class EmbeddingError(RuntimeError):
     pass
 
 
+# Known embedding dimensions for Ollama models. Update when adding support for new models.
+_MODEL_DIMENSIONS = {
+    "nomic-embed-text": 768,
+}
+
+
 class OllamaEmbedder:
     def __init__(self, model: str = "nomic-embed-text", base_url: str = "http://localhost:11434"):
         self.model = model
         self.base_url = base_url
+        self.model_name = model
+        self.dimensions = _MODEL_DIMENSIONS.get(model, 768)
 
     async def embed(self, text: str) -> list[float]:
         logger.debug("Embedding text (length=%d)", len(text))

@@ -41,6 +41,15 @@ class GuruClient:
                 resp.raise_for_status()
             return resp.json()
 
+    async def _delete(self, path: str) -> dict | list:
+        async with httpx.AsyncClient(transport=self._transport(), timeout=self._timeout) as client:
+            logger.debug("DELETE %s", path)
+            resp = await client.delete(f"http://localhost{path}")
+            logger.debug("DELETE %s -> %d", path, resp.status_code)
+            if resp.is_error:
+                resp.raise_for_status()
+            return resp.json()
+
     async def status(self) -> dict:
         return await self._get("/status")
 
@@ -75,3 +84,15 @@ class GuruClient:
 
     async def get_job(self, job_id: str) -> dict:
         return await self._get(f"/jobs/{job_id}")
+
+    async def cache_info(self) -> dict:
+        return await self._get("/cache")
+
+    async def cache_clear(self, model: str | None = None) -> dict:
+        path = "/cache"
+        if model:
+            path = f"{path}?{urlencode({'model': model})}"
+        return await self._delete(path)
+
+    async def cache_prune(self, older_than_ms: int) -> dict:
+        return await self._post("/cache/prune", {"older_than_ms": older_than_ms})

@@ -3,20 +3,39 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from guru_core.types import MatchConfig, Rule
+from guru_core.types import GuruConfig, MatchConfig, Rule
 
 DEFAULT_RULES = [
     Rule(rule_name="default", match=MatchConfig(glob="**/*.md")),
 ]
 
 
-def load_rules(path: Path) -> list[Rule] | None:
-    """Load rules from a JSON config file. Returns None if file doesn't exist."""
+def load_config(path: Path) -> GuruConfig | None:
+    """Load a config file. Returns None if the file does not exist.
+
+    Accepts both the v1 object format (`{"version": 1, "rules": [...]}`)
+    and the legacy flat-array format (`[{"ruleName": ..., ...}]`), which
+    is auto-wrapped into `{"version": 1, "rules": <array>}` for callers.
+    """
     if not path.is_file():
         return None
     with open(path) as f:
         data = json.load(f)
-    return [Rule(**item) for item in data]
+    if isinstance(data, list):
+        data = {"version": 1, "rules": data}
+    return GuruConfig(**data)
+
+
+# Keep load_rules as backward-compat alias
+def load_rules(path: Path) -> list[Rule] | None:
+    """Load rules from a JSON config file. Returns None if file doesn't exist.
+
+    .. deprecated:: Use load_config() instead.
+    """
+    cfg = load_config(path)
+    if cfg is None:
+        return None
+    return cfg.rules
 
 
 def merge_rules(global_rules: list[Rule], local_rules: list[Rule]) -> list[Rule]:
@@ -34,34 +53,35 @@ def merge_rules(global_rules: list[Rule], local_rules: list[Rule]) -> list[Rule]
 def resolve_config(
     project_root: Path,
     global_config_dir: Path | None = None,
-) -> list[Rule]:
+) -> GuruConfig:
     """Resolve configuration using the fallback chain.
 
     Resolution:
     1. Load ~/.config/guru/config.json as base (global)
     2. Load ./.guru.json (preferred), ./guru.json (backwards compat),
        or ./.guru/config.json (legacy fallback) as local
-    3. Merge: local rules override global by rule_name, new names appended
-    4. No config anywhere -> hardcoded defaults
+    3. Merge rules: local rules override global by rule_name, new names appended
+    4. No config anywhere -> GuruConfig with DEFAULT_RULES
     """
     if global_config_dir is None:
         global_config_dir = Path.home() / ".config" / "guru"
 
-    global_rules = load_rules(global_config_dir / "config.json")
+    global_cfg = load_config(global_config_dir / "config.json")
 
-    local_rules = load_rules(project_root / ".guru.json")
-    if local_rules is None:
-        local_rules = load_rules(project_root / "guru.json")
-    if local_rules is None:
-        local_rules = load_rules(project_root / ".guru" / "config.json")
+    local_cfg = load_config(project_root / ".guru.json")
+    if local_cfg is None:
+        local_cfg = load_config(project_root / "guru.json")
+    if local_cfg is None:
+        local_cfg = load_config(project_root / ".guru" / "config.json")
 
-    if global_rules is None and local_rules is None:
-        return list(DEFAULT_RULES)
+    if global_cfg is None and local_cfg is None:
+        return GuruConfig(version=1, rules=list(DEFAULT_RULES))
 
-    if global_rules is None:
-        return local_rules
+    if global_cfg is None:
+        return local_cfg
 
-    if local_rules is None:
-        return global_rules
+    if local_cfg is None:
+        return global_cfg
 
-    return merge_rules(global_rules, local_rules)
+    merged_rules = merge_rules(global_cfg.rules, local_cfg.rules)
+    return GuruConfig(version=1, rules=merged_rules)

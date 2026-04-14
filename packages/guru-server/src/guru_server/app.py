@@ -7,7 +7,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from guru_core.types import GuruConfig
 from guru_server.api import api_router
+from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.indexer import BackgroundIndexer
 from guru_server.jobs import JobRegistry
@@ -102,9 +104,10 @@ async def lifespan(app: FastAPI):
 def create_app(
     store: VectorStore | None = None,
     embedder: OllamaEmbedder | None = None,
-    config: list | None = None,
+    config: GuruConfig | None = None,
     project_root: str | None = None,
     auto_index: bool = True,
+    embed_cache: EmbeddingCache | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -122,10 +125,11 @@ def create_app(
     )
     app.state.store = store
     app.state.embedder = embedder
-    app.state.config = config or []
+    app.state.config = config if config is not None else GuruConfig()
     app.state.project_root = project_root or "."
     app.state.last_indexed = None
     app.state.job_registry = JobRegistry()
+    app.state.embed_cache = embed_cache
 
     # Create manifest using the same LanceDB connection as the store
     if store is not None and hasattr(store, "db"):
@@ -141,6 +145,7 @@ def create_app(
             embedder=embedder,
             config=app.state.config,
             project_root=Path(app.state.project_root),
+            embed_cache=embed_cache,
         )
     else:
         app.state.indexer = None

@@ -21,6 +21,8 @@ class Job:
         self.created_at: datetime = datetime.now(UTC)
         self.started_at: datetime | None = None
         self.finished_at: datetime | None = None
+        self.cache_hits: int = 0
+        self.cache_misses: int = 0
 
     def to_summary(self) -> JobSummary:
         return JobSummary(
@@ -30,6 +32,8 @@ class Job:
             files_total=self.files_total,
             files_processed=self.files_processed,
             files_skipped=self.files_skipped,
+            cache_hits=self.cache_hits,
+            cache_misses=self.cache_misses,
         )
 
     def to_detail(self) -> JobDetail:
@@ -43,6 +47,8 @@ class Job:
             files_skipped=self.files_skipped,
             files_deleted=self.files_deleted,
             chunks_created=self.chunks_created,
+            cache_hits=self.cache_hits,
+            cache_misses=self.cache_misses,
             error=self.error,
             created_at=self.created_at,
             started_at=self.started_at,

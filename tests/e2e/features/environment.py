@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -14,6 +15,7 @@ import uvicorn
 
 from guru_server.app import create_app
 from guru_server.config import resolve_config
+from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.storage import VectorStore
 
@@ -30,19 +32,22 @@ def _create_standard_project() -> Path:
     guru_dir.mkdir()
     (guru_dir / "db").mkdir()
 
-    config = [
-        {
-            "ruleName": "docs",
-            "match": {"glob": "docs/**/*.md"},
-            "labels": ["documentation"],
-        },
-        {
-            "ruleName": "specs",
-            "match": {"glob": "specs/**/*.md"},
-            "labels": ["spec"],
-        },
-    ]
-    (tmp_path / "guru.json").write_text(json.dumps(config, indent=2))
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+            {
+                "ruleName": "specs",
+                "match": {"glob": "specs/**/*.md"},
+                "labels": ["spec"],
+            },
+        ],
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
 
     docs_dir = tmp_path / "docs"
     docs_dir.mkdir()
@@ -129,24 +134,27 @@ def _create_semantic_project() -> Path:
     guru_dir.mkdir()
     (guru_dir / "db").mkdir()
 
-    config = [
-        {
-            "ruleName": "guides",
-            "match": {"glob": "guides/**/*.md"},
-            "labels": ["guide"],
-        },
-        {
-            "ruleName": "references",
-            "match": {"glob": "references/**/*.md"},
-            "labels": ["reference", "technical"],
-        },
-        {
-            "ruleName": "notes",
-            "match": {"glob": "notes/**/*.md"},
-            "labels": ["note"],
-        },
-    ]
-    (tmp_path / "guru.json").write_text(json.dumps(config, indent=2))
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "guides",
+                "match": {"glob": "guides/**/*.md"},
+                "labels": ["guide"],
+            },
+            {
+                "ruleName": "references",
+                "match": {"glob": "references/**/*.md"},
+                "labels": ["reference", "technical"],
+            },
+            {
+                "ruleName": "notes",
+                "match": {"glob": "notes/**/*.md"},
+                "labels": ["note"],
+            },
+        ],
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
 
     # --- guides: cooking ---
     guides_dir = tmp_path / "guides"
@@ -250,6 +258,74 @@ Jupiter contains millions of rocky bodies left over from planet formation.
     return tmp_path
 
 
+def _create_gitignore_project() -> Path:
+    """Project inside a git repo with a gitignored node_modules/ directory.
+
+    Used by the gitignore_discovery BDD feature to verify that
+    `git ls-files`-driven discovery skips gitignored content.
+    """
+    tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
+
+    guru_dir = tmp_path / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "all",
+                "match": {"glob": "**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    # Real markdown (not gitignored) — should be indexed
+    docs_dir = tmp_path / "docs"
+    docs_dir.mkdir()
+    (docs_dir / "real.md").write_text("""\
+---
+title: Real Document
+---
+
+# Real Document
+
+This file lives in docs/ and is tracked by git.
+It should appear in the index after `guru index`.
+""")
+
+    # "Generated" markdown inside a gitignored directory — must NOT be indexed
+    node_modules = tmp_path / "node_modules"
+    node_modules.mkdir()
+    (node_modules / "README.md").write_text("""\
+# Generated README
+
+This file lives in a gitignored directory and must not be indexed.
+""")
+
+    # .gitignore excludes node_modules and .guru runtime state
+    (tmp_path / ".gitignore").write_text("node_modules/\n.guru/\n")
+
+    # Initialize a git repo so `git ls-files` works
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "add", "docs/", ".gitignore", ".guru.json"],
+        cwd=tmp_path,
+        check=True,
+    )
+    subprocess.run(["git", "commit", "-q", "-m", "initial"], cwd=tmp_path, check=True)
+
+    return tmp_path
+
+
 # ---------------------------------------------------------------------------
 # Server helpers
 # ---------------------------------------------------------------------------
@@ -286,12 +362,17 @@ def _start_server(
     config = resolve_config(project_root=project_dir)
     store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
 
+    # Create an isolated embedding cache for this feature
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
     app = create_app(
         store=store,
         embedder=embedder,
         config=config,
         project_root=str(project_dir),
         auto_index=False,
+        embed_cache=embed_cache,
     )
 
     uvi_config = uvicorn.Config(app, uds=socket_path, log_level="warning")
@@ -361,13 +442,23 @@ def _trigger_and_wait_index(project_dir: Path, timeout: float = 30.0) -> dict:
 def before_feature(context, feature):
     """Start a fresh server for each feature.
 
-    Features tagged @real_ollama get real Ollama embeddings and the
-    semantic project layout. All others get the standard project with
-    a mocked embedder.
+    Tags decide which project fixture is used:
+    - @real_ollama → semantic project with real Ollama embeddings
+    - @gitignore_project → git-repo project with gitignored files
+    - (default) → standard project with mocked embedder
     """
+    # Isolate the embedding cache per feature so scenarios don't pollute each other
+    cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
+    os.close(cache_fd)
+    os.environ["GURU_EMBED_CACHE_PATH"] = cache_name
+    context._cache_path = cache_name
+
     if "real_ollama" in feature.tags:
         context.project_dir = _create_semantic_project()
         context.embedder = OllamaEmbedder()  # real Ollama
+    elif "gitignore_project" in feature.tags:
+        context.project_dir = _create_gitignore_project()
+        context.embedder = _make_fake_embedder()
     else:
         context.project_dir = _create_standard_project()
         context.embedder = _make_fake_embedder()
@@ -390,3 +481,9 @@ def after_feature(context, feature):
         pid_path.unlink(missing_ok=True)
         sock_path.unlink(missing_ok=True)
         shutil.rmtree(context.project_dir, ignore_errors=True)
+
+    # Clean up the isolated embedding cache
+    cache_path = getattr(context, "_cache_path", None)
+    if cache_path and os.path.exists(cache_path):
+        os.unlink(cache_path)
+    os.environ.pop("GURU_EMBED_CACHE_PATH", None)

@@ -54,8 +54,26 @@ def mock_embedder():
 
 
 @pytest.fixture
-def client(mock_store, mock_embedder):
-    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
+def embed_cache(tmp_path):
+    from guru_server.embed_cache import EmbeddingCache
+
+    cache = EmbeddingCache(db_path=tmp_path / "test_embeddings.db")
+    yield cache
+    cache.close()
+
+
+@pytest.fixture
+def app(mock_store, mock_embedder, embed_cache):
+    return create_app(
+        store=mock_store,
+        embedder=mock_embedder,
+        embed_cache=embed_cache,
+        auto_index=False,
+    )
+
+
+@pytest.fixture
+def client(app):
     return TestClient(app)
 
 
@@ -207,3 +225,125 @@ def test_search_with_filters(client):
 def test_search_with_disallowed_filter(client):
     resp = client.post("/search", json={"query": "auth", "filters": {"arbitrary_col": "value"}})
     assert resp.status_code == 400
+
+
+def test_get_cache_stats_empty(client):
+    resp = client.get("/cache")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["total_entries"] == 0
+    assert data["by_model"] == {}
+
+
+def test_delete_cache_clears_all(client, app):
+    import hashlib
+
+    import numpy as np
+
+    key = (hashlib.sha256(b"hello").digest(), "nomic-embed-text")
+    app.state.embed_cache.put_many([(key, np.array([0.1] * 768, dtype=np.float32))])
+
+    resp = client.delete("/cache")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1
+    assert app.state.embed_cache.stats().total_entries == 0
+
+
+def test_delete_cache_scoped_by_model(client, app):
+    import hashlib
+
+    import numpy as np
+
+    app.state.embed_cache.put_many(
+        [
+            ((hashlib.sha256(b"a").digest(), "m1"), np.array([1.0], dtype=np.float32)),
+            ((hashlib.sha256(b"b").digest(), "m2"), np.array([2.0], dtype=np.float32)),
+        ]
+    )
+
+    resp = client.delete("/cache?model=m1")
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1
+    assert app.state.embed_cache.stats().total_entries == 1
+
+
+def test_prune_cache(client, app):
+    import hashlib
+
+    import numpy as np
+
+    key = (hashlib.sha256(b"old").digest(), "m1")
+    app.state.embed_cache.put_many([(key, np.array([1.0], dtype=np.float32))])
+    old_ts_ms = 0
+    app.state.embed_cache._conn.execute(
+        "UPDATE embeddings SET accessed_at = ? WHERE content_hash = ?",
+        (old_ts_ms, key[0]),
+    )
+
+    resp = client.post("/cache/prune", json={"older_than_ms": 1000})
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] == 1
+
+
+def test_status_includes_cache_section(client, app):
+    import hashlib
+
+    import numpy as np
+
+    key = (hashlib.sha256(b"hello").digest(), "nomic-embed-text")
+    app.state.embed_cache.put_many([(key, np.array([0.1] * 768, dtype=np.float32))])
+
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "cache" in data
+    assert data["cache"] is not None
+    assert data["cache"]["total_entries"] == 1
+
+
+def test_status_includes_last_job_hit_rate(client, app):
+    """When a completed job exists, /status reports its cache counters
+    and computed hit rate via _assemble_stats.
+    """
+    from datetime import UTC, datetime
+
+    job = app.state.job_registry.create_job()
+    job.status = "completed"
+    job.cache_hits = 7
+    job.cache_misses = 3
+    job.finished_at = datetime.now(UTC)
+
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    cache_data = resp.json()["cache"]
+    assert cache_data["last_job_hits"] == 7
+    assert cache_data["last_job_misses"] == 3
+    assert cache_data["last_job_hit_rate"] == pytest.approx(0.7)
+
+
+def test_status_last_job_hit_rate_is_none_when_no_chunks(client, app):
+    """A completed job with zero chunks (hits + misses == 0) yields a
+    null hit rate, not a division-by-zero.
+    """
+    from datetime import UTC, datetime
+
+    job = app.state.job_registry.create_job()
+    job.status = "completed"
+    job.cache_hits = 0
+    job.cache_misses = 0
+    job.finished_at = datetime.now(UTC)
+
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    cache_data = resp.json()["cache"]
+    assert cache_data["last_job_hits"] == 0
+    assert cache_data["last_job_misses"] == 0
+    assert cache_data["last_job_hit_rate"] is None
+
+
+def test_prune_cache_rejects_negative_older_than(client):
+    """CachePruneRequest has older_than_ms: int = Field(ge=0).
+    FastAPI must reject a negative value at the HTTP boundary with 422.
+    """
+    resp = client.post("/cache/prune", json={"older_than_ms": -1})
+    assert resp.status_code == 422
