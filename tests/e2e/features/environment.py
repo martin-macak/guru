@@ -14,6 +14,7 @@ import uvicorn
 
 from guru_server.app import create_app
 from guru_server.config import resolve_config
+from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.storage import VectorStore
 
@@ -286,12 +287,17 @@ def _start_server(
     config = resolve_config(project_root=project_dir)
     store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
 
+    # Create an isolated embedding cache for this feature
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
     app = create_app(
         store=store,
         embedder=embedder,
         config=config,
         project_root=str(project_dir),
         auto_index=False,
+        embed_cache=embed_cache,
     )
 
     uvi_config = uvicorn.Config(app, uds=socket_path, log_level="warning")
@@ -365,6 +371,12 @@ def before_feature(context, feature):
     semantic project layout. All others get the standard project with
     a mocked embedder.
     """
+    # Isolate the embedding cache per feature so scenarios don't pollute each other
+    cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
+    os.close(cache_fd)
+    os.environ["GURU_EMBED_CACHE_PATH"] = cache_name
+    context._cache_path = cache_name
+
     if "real_ollama" in feature.tags:
         context.project_dir = _create_semantic_project()
         context.embedder = OllamaEmbedder()  # real Ollama
@@ -390,3 +402,9 @@ def after_feature(context, feature):
         pid_path.unlink(missing_ok=True)
         sock_path.unlink(missing_ok=True)
         shutil.rmtree(context.project_dir, ignore_errors=True)
+
+    # Clean up the isolated embedding cache
+    cache_path = getattr(context, "_cache_path", None)
+    if cache_path and os.path.exists(cache_path):
+        os.unlink(cache_path)
+    os.environ.pop("GURU_EMBED_CACHE_PATH", None)

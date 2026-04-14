@@ -51,17 +51,18 @@ packages/
 
 ## Data Ownership
 
-- `.guru/` directory in the project root holds all runtime state (db, socket, pid).
+- `.guru/` directory in the project root holds per-project runtime state (db, socket, pid, manifest). Each worktree has its own `.guru/`.
 - `.guru/` is gitignored. It is pure runtime state, never version-controlled.
-- `guru.json` in the project root holds indexing rules. It is version-controlled.
+- `.guru.json` (preferred) or legacy `guru.json` in the project root holds indexing rules. It is version-controlled.
+- The **embedding cache** lives at the OS-standard user cache directory (`$XDG_CACHE_HOME/guru/embeddings.db` on Linux, `~/Library/Caches/guru/embeddings.db` on macOS). It is a content-addressed optimization, not state: every entry is derivable from the chunks it caches, so deleting the cache is always safe — it only costs re-embedding time. The cache is shared across all guru projects and worktrees on the machine, keyed by `sha256(chunk_text) + model_name`.
 
 ## Configuration
 
-- Rule-based JSON config: each rule has `ruleName`, `match.glob`, optional `exclude`,
-  `labels`, and `chunking` overrides.
-- Resolution chain: `./guru.json` > `./.guru/config.json` > `~/.config/guru/config.json`.
+- JSON config with a top-level `{ "version": 1, "rules": [...] }` object. Each rule has `ruleName`, `match.glob`, optional `exclude`, `labels`, and `chunking` overrides.
+- The legacy flat-array format (`[ { "ruleName": ..., ... } ]`) is still read and auto-wrapped to `{ "version": 1, "rules": <array> }`. The `guru init` command and any future write path emit the object format.
+- Resolution chain: `./.guru.json` > `./guru.json` > `./.guru/config.json` > `~/.config/guru/config.json`.
 - Merge by `ruleName`: local rules with same name fully replace global. New names appended.
-- No config anywhere -> hardcoded default: index all `**/*.md`.
+- No config anywhere → hardcoded default: index all `**/*.md`.
 
 ## Ingestion
 
@@ -69,6 +70,7 @@ packages/
 - Markdown is the first and only MVP parser (LlamaIndex MarkdownNodeParser +
   HierarchicalNodeParser + python-frontmatter).
 - New formats are added by implementing the same interface. No core changes required.
+- **Gitignore-aware discovery:** when the project root is inside a git repository, file discovery respects `.gitignore` via `git ls-files --cached --others --exclude-standard`. Gitignored paths are never indexed, regardless of whether they match the user's rule globs. Non-git projects fall back to pure glob discovery.
 
 ## MCP
 
