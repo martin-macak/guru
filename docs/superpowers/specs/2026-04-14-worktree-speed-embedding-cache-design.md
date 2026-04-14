@@ -176,24 +176,19 @@ Deliberately narrow:
 
 ### Model drift defense
 
-Ollama's `nomic-embed-text` is a tag that could, in principle, be re-pointed to a different model with different dimensions. We don't include a model digest in the cache key (too fragile), but we do defend against the dangerous failure mode by validating dimensions on read:
+Ollama's `nomic-embed-text` is a tag that could, in principle, be re-pointed to a different model with different dimensions. We don't include a model digest in the cache key (too fragile), but we do defend against the dangerous failure mode by validating dimensions on read. Inside `get_many`, each row returned from the `SELECT ... WHERE content_hash IN (...) AND model = ?` query is checked:
 
 ```python
-def get(self, key: CacheKey, expected_dim: int) -> np.ndarray | None:
-    row = self._conn.execute(
-        "SELECT dimensions, vector FROM embeddings WHERE content_hash = ? AND model = ?",
-        (key[0], key[1]),
-    ).fetchone()
-    if row is None:
-        return None
-    stored_dim, blob = row
-    if stored_dim != expected_dim:
-        return None   # treat as miss; next put_many will overwrite the row
-    self._touch(key)
-    return np.frombuffer(blob, dtype=np.float32)
+# Per-row logic applied to each match inside get_many:
+stored_dim, blob = row
+if stored_dim != expected_dim:
+    result[key] = None                # treat as miss; next put_many overwrites the row
+else:
+    result[key] = np.frombuffer(blob, dtype=np.float32)
+    self._touch(key)                  # update accessed_at for prune eligibility
 ```
 
-Dimension mismatch → treat as miss → row gets silently overwritten on the next `put`. No corruption, no mystery. Low hit rate after a model change is exactly the signal a user wants to see.
+Dimension mismatch → treat as miss → row gets silently overwritten on the next `put_many`. No corruption, no mystery. Low hit rate after a model change is exactly the signal a user wants to see.
 
 ### Python module
 
@@ -331,7 +326,7 @@ Key invariants:
 
 - **`Job` model** (`guru-server/jobs.py`): add `cache_hits: int = 0` and `cache_misses: int = 0`.
 - **`JobDetail` and `JobSummary`** (`guru-core/types.py`): surface `cache_hits` and `cache_misses` on the API schema.
-- **`OllamaEmbedder`**: expose `model_name: str` and `dimensions: int` as attributes. Added in this PR if they don't already exist — the cache can't work without them.
+- **`OllamaEmbedder`**: must expose `model_name: str` and `dimensions: int` as attributes. If these don't exist today, they're added as part of this PR — the cache cannot function without them.
 - **`BackgroundIndexer.__init__`**: accept an `EmbeddingCache` instance and store it.
 - **`guru-server/main.py:79`**: construct `EmbeddingCache(db_path=...)` alongside `store` and `embedder`, pass it into the app factory which passes it into the indexer.
 - **Run-completion log**: one extra line at the end of `BackgroundIndexer.run()`:
@@ -368,6 +363,8 @@ class StatusOut(BaseModel):
     # existing fields...
     cache: CacheStatsOut | None
 ```
+
+**How the fields are populated.** `CacheStatsOut` is assembled inside the FastAPI endpoint, not inside `EmbeddingCache`. The cache module returns a plain `CacheStats` dataclass containing only `path`, `total_entries`, `total_bytes`, and `by_model` — that's all it knows. The `last_job_*` fields are populated by the endpoint by reading the most recent completed job from the jobs module (it already tracks per-job hit/miss counters per Section 4c). If there is no completed job yet, the `last_job_*` fields stay `None`.
 
 CLI output adds a block at the bottom:
 
