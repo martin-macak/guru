@@ -1,6 +1,9 @@
 """API response/request models — re-exported from guru_core.types (canonical source)."""
 
 from guru_core.types import (
+    CacheDeleteResult,
+    CachePruneRequest,
+    CacheStatsOut,
     DocumentListItem,
     DocumentOut,
     IndexAccepted,
@@ -13,6 +16,9 @@ from guru_core.types import (
 )
 
 __all__ = [
+    "CacheDeleteResult",
+    "CachePruneRequest",
+    "CacheStatsOut",
     "DocumentListItem",
     "DocumentOut",
     "IndexAccepted",

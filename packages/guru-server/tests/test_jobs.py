@@ -98,3 +98,33 @@ def test_job_to_detail():
     assert detail.status == "completed"
     assert detail.files_total == 10
     assert detail.chunks_created == 40
+
+
+def test_job_has_cache_counters():
+    from guru_server.jobs import Job
+
+    job = Job()
+    assert job.cache_hits == 0
+    assert job.cache_misses == 0
+
+
+def test_job_to_summary_includes_cache_counters():
+    from guru_server.jobs import Job
+
+    job = Job()
+    job.cache_hits = 5
+    job.cache_misses = 3
+    summary = job.to_summary()
+    assert summary.cache_hits == 5
+    assert summary.cache_misses == 3
+
+
+def test_job_to_detail_includes_cache_counters():
+    from guru_server.jobs import Job
+
+    job = Job()
+    job.cache_hits = 5
+    job.cache_misses = 3
+    detail = job.to_detail()
+    assert detail.cache_hits == 5
+    assert detail.cache_misses == 3

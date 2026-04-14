@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import click
 import pytest
 from click.testing import CliRunner
 
@@ -33,7 +34,9 @@ def test_init_with_config(runner, tmp_path):
         config_file = Path(td) / ".guru.json"
         assert config_file.is_file()
         config = json.loads(config_file.read_text())
-        assert config[0]["ruleName"] == "default"
+        assert isinstance(config, dict)
+        assert config["version"] == 1
+        assert config["rules"][0]["ruleName"] == "default"
 
 
 def test_init_with_legacy_guru_json(runner, tmp_path):
@@ -187,3 +190,115 @@ def test_config_reads_legacy_guru_json(runner, tmp_path):
         result = runner.invoke(cli, ["config"])
         assert result.exit_code == 0
         assert "legacy" in result.output
+
+
+def test_cache_info_command(tmp_path, monkeypatch):
+    """guru cache info calls client.cache_info() and prints the result."""
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".guru").mkdir()
+
+    fake_stats = {
+        "path": "/tmp/embeddings.db",
+        "total_entries": 42,
+        "total_bytes": 1024,
+        "by_model": {"nomic-embed-text": 42},
+        "last_job_hits": None,
+        "last_job_misses": None,
+        "last_job_hit_rate": None,
+    }
+    with patch("guru_cli.cli._get_client") as mock_get_client:
+        client = mock_get_client.return_value
+        client.cache_info = AsyncMock(return_value=fake_stats)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cache", "info"])
+        assert result.exit_code == 0
+        # Tight assertions — don't match any stray "42" in the output
+        assert "total entries: 42" in result.output
+        assert "nomic-embed-text: 42" in result.output
+
+
+def test_cache_clear_command_with_yes(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".guru").mkdir()
+
+    with patch("guru_cli.cli._get_client") as mock_get_client:
+        client = mock_get_client.return_value
+        client.cache_clear = AsyncMock(return_value={"deleted": 7})
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cache", "clear", "--yes"])
+        assert result.exit_code == 0
+        assert "7" in result.output
+
+
+def test_cache_prune_command_with_yes(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".guru").mkdir()
+
+    with patch("guru_cli.cli._get_client") as mock_get_client:
+        client = mock_get_client.return_value
+        client.cache_prune = AsyncMock(return_value={"deleted": 3})
+        runner = CliRunner()
+        result = runner.invoke(cli, ["cache", "prune", "--older-than", "30d", "--yes"])
+        assert result.exit_code == 0
+        assert "3" in result.output
+
+
+def test_parse_duration_supports_d_w_h_m():
+    from guru_cli.cli import _parse_duration_to_ms
+
+    assert _parse_duration_to_ms("30d") == 30 * 24 * 3600 * 1000
+    assert _parse_duration_to_ms("2w") == 14 * 24 * 3600 * 1000
+    assert _parse_duration_to_ms("6h") == 6 * 3600 * 1000
+    assert _parse_duration_to_ms("15m") == 15 * 60 * 1000
+
+
+def test_parse_duration_rejects_bad_input():
+    import pytest
+
+    from guru_cli.cli import _parse_duration_to_ms
+
+    with pytest.raises(click.BadParameter):
+        _parse_duration_to_ms("30days")
+    with pytest.raises(click.BadParameter):
+        _parse_duration_to_ms("abc")
+
+
+def test_server_status_prints_cache_block(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".guru").mkdir()
+
+    fake_status = {
+        "server_running": True,
+        "document_count": 5,
+        "chunk_count": 50,
+        "last_indexed": None,
+        "ollama_available": True,
+        "model_loaded": True,
+        "current_job": None,
+        "cache": {
+            "path": "/tmp/embeddings.db",
+            "total_entries": 25,
+            "total_bytes": 5000,
+            "by_model": {"nomic-embed-text": 25},
+            "last_job_hits": 10,
+            "last_job_misses": 15,
+            "last_job_hit_rate": 0.4,
+        },
+    }
+    with patch("guru_cli.cli._get_client") as mock_get_client:
+        client = mock_get_client.return_value
+        client.status = AsyncMock(return_value=fake_status)
+        runner = CliRunner()
+        result = runner.invoke(cli, ["server", "status"])
+        assert result.exit_code == 0
+        assert "Cache:" in result.output
+        assert "25" in result.output
+        assert "10 hits" in result.output or "10" in result.output

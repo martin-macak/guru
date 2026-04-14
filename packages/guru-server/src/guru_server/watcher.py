@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from guru_core.types import Rule
+from guru_core.types import GuruConfig, Rule
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +64,7 @@ def _glob_matches(pattern: str, path: str) -> bool:
 
 async def start_watcher(
     project_root: Path,
-    config: list[Rule],
+    config: GuruConfig,
     job_registry,
     submit_index,
 ) -> None:
@@ -86,7 +86,7 @@ async def start_watcher(
             relevant = [
                 path
                 for _change_type, path in changes
-                if should_watch_path(Path(path), project_root, config)
+                if should_watch_path(Path(path), project_root, config.rules)
             ]
 
             if not relevant:

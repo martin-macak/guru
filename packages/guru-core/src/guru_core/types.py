@@ -25,6 +25,14 @@ class Rule(BaseModel):
     chunking: ChunkingConfig | None = None
 
 
+class GuruConfig(BaseModel):
+    """Object-form config file. Replaces the legacy flat array of rules."""
+
+    model_config = ConfigDict(populate_by_name=True)
+    version: int = 1
+    rules: list[Rule] = Field(default_factory=list)
+
+
 class SearchRequest(BaseModel):
     query: str
     n_results: int = 10
@@ -65,25 +73,7 @@ class SectionOut(BaseModel):
     chunk_level: int
 
 
-class StatusOut(BaseModel):
-    server_running: bool
-    document_count: int
-    chunk_count: int
-    last_indexed: datetime | None
-    ollama_available: bool
-    model_loaded: bool
-    current_job: JobSummary | None = None
-
-
-class IndexOut(BaseModel):
-    indexed: int
-    documents: int
-
-
-class IndexAccepted(BaseModel):
-    job_id: str
-    status: str
-    message: str
+# --- Job models (defined before StatusOut because StatusOut references them) ---
 
 
 class JobSummary(BaseModel):
@@ -93,6 +83,8 @@ class JobSummary(BaseModel):
     files_total: int
     files_processed: int
     files_skipped: int
+    cache_hits: int = 0
+    cache_misses: int = 0
 
 
 class JobDetail(BaseModel):
@@ -105,10 +97,55 @@ class JobDetail(BaseModel):
     files_skipped: int
     files_deleted: int
     chunks_created: int
+    cache_hits: int = 0
+    cache_misses: int = 0
     error: str | None
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+# --- Embedding cache models (defined before StatusOut because StatusOut references CacheStatsOut) ---
+
+
+class CacheStatsOut(BaseModel):
+    path: str
+    total_entries: int
+    total_bytes: int
+    by_model: dict[str, int] = Field(default_factory=dict)
+    last_job_hits: int | None = None
+    last_job_misses: int | None = None
+    last_job_hit_rate: float | None = None
+
+
+class CacheDeleteResult(BaseModel):
+    deleted: int
+
+
+class CachePruneRequest(BaseModel):
+    older_than_ms: int = Field(ge=0)
+
+
+class StatusOut(BaseModel):
+    server_running: bool
+    document_count: int
+    chunk_count: int
+    last_indexed: datetime | None
+    ollama_available: bool
+    model_loaded: bool
+    current_job: JobSummary | None = None
+    cache: CacheStatsOut | None = None
+
+
+class IndexOut(BaseModel):
+    indexed: int
+    documents: int
+
+
+class IndexAccepted(BaseModel):
+    job_id: str
+    status: str
+    message: str
 
 
 # --- Legacy / extended models kept for backward compatibility ---

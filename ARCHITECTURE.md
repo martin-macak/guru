@@ -51,17 +51,18 @@ packages/
 
 ## Data Ownership
 
-- `.guru/` directory in the project root holds all runtime state (db, socket, pid).
+- `.guru/` directory in the project root holds per-project runtime state (db, socket, pid, manifest). Each worktree has its own `.guru/`.
 - `.guru/` is gitignored. It is pure runtime state, never version-controlled.
-- `guru.json` in the project root holds indexing rules. It is version-controlled.
+- `.guru.json` (preferred) or legacy `guru.json` in the project root holds indexing rules. It is version-controlled.
+- The **embedding cache** lives at the OS-standard user cache directory (`$XDG_CACHE_HOME/guru/embeddings.db` on Linux, `~/Library/Caches/guru/embeddings.db` on macOS). It is a content-addressed optimization, not state: every entry is derivable from the chunks it caches, so deleting the cache is always safe — it only costs re-embedding time. The cache is shared across all guru projects and worktrees on the machine, keyed by `sha256(chunk_text) + model_name`.
 
 ## Configuration
 
-- Rule-based JSON config: each rule has `ruleName`, `match.glob`, optional `exclude`,
-  `labels`, and `chunking` overrides.
-- Resolution chain: `./guru.json` > `./.guru/config.json` > `~/.config/guru/config.json`.
+- JSON config with a top-level `{ "version": 1, "rules": [...] }` object. Each rule has `ruleName`, `match.glob`, optional `exclude`, `labels`, and `chunking` overrides.
+- The legacy flat-array format (`[ { "ruleName": ..., ... } ]`) is still read and auto-wrapped to `{ "version": 1, "rules": <array> }`. The `guru init` command and any future write path emit the object format.
+- Resolution chain: `./.guru.json` > `./guru.json` > `./.guru/config.json` > `~/.config/guru/config.json`.
 - Merge by `ruleName`: local rules with same name fully replace global. New names appended.
-- No config anywhere -> hardcoded default: index all `**/*.md`.
+- No config anywhere → hardcoded default: index all `**/*.md`.
 
 ## Ingestion
 
@@ -69,12 +70,14 @@ packages/
 - Markdown is the first and only MVP parser (LlamaIndex MarkdownNodeParser +
   HierarchicalNodeParser + python-frontmatter).
 - New formats are added by implementing the same interface. No core changes required.
+- **Gitignore-aware discovery:** when the project root is inside a git repository, file discovery respects `.gitignore` via `git ls-files --cached --others --exclude-standard`. Gitignored paths are never indexed, regardless of whether they match the user's rule globs. Non-git projects fall back to pure glob discovery.
 
 ## MCP
 
 - stdio transport only (MVP). Universal across Claude Code, Cursor, Continue.dev.
 - MCP tools map 1:1 to REST API endpoints. The MCP server contains zero business logic.
 - MCP process inherits working directory from the agent for automatic project discovery.
+- **Developer-facing endpoint exception:** REST endpoints whose sole audience is the human developer (e.g. embedding cache management at `GET/DELETE /cache`, `POST /cache/prune`) are **not** exposed as MCP tools. Agents have no legitimate use for cache invalidation or pruning, so these operations are deliberately excluded from the MCP tool surface. The 1:1 mapping rule applies to endpoints an agent would call in normal operation (search, document read, status).
 
 ## CLI
 

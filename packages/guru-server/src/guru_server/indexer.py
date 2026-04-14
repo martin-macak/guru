@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
-from guru_core.types import Rule
+import numpy as np
+
+from guru_core.types import GuruConfig, Rule
+from guru_server.embed_cache import EmbeddingCache
 from guru_server.ingestion.markdown import MarkdownParser
 from guru_server.jobs import Job
 from guru_server.manifest import FileManifest
@@ -23,6 +27,23 @@ def _file_hash(path: Path) -> str:
     return h.hexdigest()
 
 
+def _git_tracked_paths(project_root: Path) -> set[str] | None:
+    """Return the set of paths git considers tracked-or-unignored, relative
+    to project_root. Returns None if this is not a git worktree or git is
+    unavailable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=project_root,
+            capture_output=True,
+            check=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return set(result.stdout.decode("utf-8").split("\0")) - {""}
+
+
 class BackgroundIndexer:
     def __init__(
         self,
@@ -30,8 +51,9 @@ class BackgroundIndexer:
         store: VectorStore,
         manifest: FileManifest,
         embedder,
-        config: list[Rule],
+        config: GuruConfig,
         project_root: Path,
+        embed_cache: EmbeddingCache | None = None,
     ) -> None:
         self._store = store
         self._manifest = manifest
@@ -39,6 +61,7 @@ class BackgroundIndexer:
         self._config = config
         self._project_root = Path(project_root).resolve()
         self._parser = MarkdownParser()
+        self._cache = embed_cache
 
     async def run(self, job: Job) -> None:
         """Execute a two-phase indexing job."""
@@ -89,6 +112,17 @@ class BackgroundIndexer:
                 job.chunks_created,
                 job.files_deleted,
             )
+            total_chunks = job.cache_hits + job.cache_misses
+            if total_chunks > 0:
+                hit_rate = 100.0 * job.cache_hits / total_chunks
+                logger.info(
+                    "[job %s] Cache: %d/%d hits (%.1f%%), %d new embeddings",
+                    short_id,
+                    job.cache_hits,
+                    total_chunks,
+                    hit_rate,
+                    job.cache_misses,
+                )
         except Exception as exc:
             job.status = "failed"
             job.phase = None
@@ -98,16 +132,18 @@ class BackgroundIndexer:
 
     def _discover(self, job: Job):
         """Scan files and compare against manifest. Returns (to_index, to_skip, to_delete)."""
+        git_paths = _git_tracked_paths(self._project_root)
+
         # Collect excluded files
         excluded_files: set[Path] = set()
-        for rule in self._config:
+        for rule in self._config.rules:
             if rule.exclude:
                 excluded_files.update(self._project_root.glob(rule.match.glob))
 
         # Collect all matched files with their rules
         seen_files: set[Path] = set()
         matched: list[tuple[Path, str, Rule]] = []
-        for rule in self._config:
+        for rule in self._config.rules:
             if rule.exclude:
                 continue
             for file_path in self._project_root.glob(rule.match.glob):
@@ -117,10 +153,13 @@ class BackgroundIndexer:
                     continue
                 if file_path in seen_files:
                     continue
-                if self._parser.supports(file_path):
-                    seen_files.add(file_path)
-                    rel_path = str(file_path.relative_to(self._project_root))
-                    matched.append((file_path, rel_path, rule))
+                if not self._parser.supports(file_path):
+                    continue
+                rel_path = str(file_path.relative_to(self._project_root))
+                if git_paths is not None and rel_path not in git_paths:
+                    continue  # gitignored — skip
+                seen_files.add(file_path)
+                matched.append((file_path, rel_path, rule))
 
         # Check each file against manifest
         to_index: list[tuple[Path, str, Rule]] = []
@@ -164,8 +203,7 @@ class BackgroundIndexer:
     async def _index_file(
         self, job: Job, file_path: Path, rel_path: str, rule: Rule, short_id: str
     ) -> None:
-        """Parse, embed, and store a single file."""
-        # Capture hash and mtime before parsing (avoids double read)
+        """Parse, embed (via cache when possible), and store a single file."""
         content_hash = _file_hash(file_path)
         current_mtime = file_path.stat().st_mtime
 
@@ -174,9 +212,7 @@ class BackgroundIndexer:
             chunk.file_path = rel_path
 
         if not chunks:
-            # Remove any stale chunks from a previous index run
             self._store.delete_file(rel_path)
-            # Update manifest so change detection stays accurate for empty files
             self._manifest.upsert(
                 rel_path,
                 content_hash=content_hash,
@@ -187,7 +223,7 @@ class BackgroundIndexer:
             return
 
         texts = [chunk.content for chunk in chunks]
-        vectors = await self._embedder.embed_batch(texts)
+        vectors = await self._embed_with_cache(texts, job, short_id)
 
         # Replace old chunks only after new embeddings are ready so
         # parse/embed failures do not destroy the previous index.
@@ -205,3 +241,68 @@ class BackgroundIndexer:
         job.files_processed += 1
         job.chunks_created += len(chunks)
         logger.info("[job %s] Indexed %s (%d chunks)", short_id, rel_path, len(chunks))
+
+    async def _embed_with_cache(
+        self, texts: list[str], job: Job, short_id: str
+    ) -> list[list[float]]:
+        """Embed texts, reusing cached vectors when possible.
+
+        Returns vectors in the same order as texts. Cache failures are
+        logged and downgraded to a full embedder call.
+        """
+        if self._cache is None:
+            new = await self._embedder.embed_batch(texts)
+            job.cache_misses += len(texts)
+            return new
+
+        model_name = getattr(self._embedder, "model_name", None)
+        dimensions = getattr(self._embedder, "dimensions", None)
+        if model_name is None or dimensions is None:
+            logger.warning(
+                "[job %s] embedder lacks model_name/dimensions — bypassing cache", short_id
+            )
+            new = await self._embedder.embed_batch(texts)
+            job.cache_misses += len(texts)
+            return new
+
+        keys: list[tuple[bytes, str]] = [
+            (hashlib.sha256(t.encode("utf-8")).digest(), model_name) for t in texts
+        ]
+
+        try:
+            cached = self._cache.get_many(keys, expected_dim=dimensions)
+        except Exception as exc:
+            logger.warning("[job %s] cache.get_many failed: %s — falling through", short_id, exc)
+            cached = [None] * len(texts)
+
+        missing_idx = [i for i, v in enumerate(cached) if v is None]
+        missing_texts = [texts[i] for i in missing_idx]
+
+        new_vectors_raw: list[list[float]] = (
+            await self._embedder.embed_batch(missing_texts) if missing_texts else []
+        )
+
+        # Merge, preserving chunk order
+        vectors: list[list[float]] = [None] * len(texts)  # type: ignore[list-item]
+        for i, v in enumerate(cached):
+            if v is not None:
+                vectors[i] = v.tolist()
+        for j, i in enumerate(missing_idx):
+            vectors[i] = list(new_vectors_raw[j])
+
+        # Populate cache with the new vectors
+        if missing_idx:
+            try:
+                self._cache.put_many(
+                    [
+                        (keys[i], np.asarray(new_vectors_raw[j], dtype=np.float32))
+                        for j, i in enumerate(missing_idx)
+                    ]
+                )
+            except Exception as exc:
+                logger.warning("[job %s] cache.put_many failed: %s — continuing", short_id, exc)
+
+        job.cache_hits += len(texts) - len(missing_idx)
+        job.cache_misses += len(missing_idx)
+
+        return vectors  # type: ignore[return-value]
