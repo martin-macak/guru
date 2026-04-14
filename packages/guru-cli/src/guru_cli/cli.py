@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import re
 import sys
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -35,6 +36,22 @@ def _get_client() -> GuruClient:
 def _run(coro):
     """Run an async coroutine synchronously."""
     return asyncio.run(coro)
+
+
+def _parse_duration_to_ms(text: str) -> int:
+    """Parse a duration like '30d', '2w', '6h', '15m' into milliseconds."""
+    match = re.fullmatch(r"(\d+)([dwhm])", text)
+    if match is None:
+        raise click.BadParameter(f"Invalid duration '{text}'. Use forms like 30d, 2w, 6h, 15m.")
+    n = int(match.group(1))
+    unit = match.group(2)
+    multipliers = {
+        "m": 60 * 1000,
+        "h": 60 * 60 * 1000,
+        "d": 24 * 60 * 60 * 1000,
+        "w": 7 * 24 * 60 * 60 * 1000,
+    }
+    return n * multipliers[unit]
 
 
 @click.group(invoke_without_command=True)
@@ -211,6 +228,7 @@ def server_status(job_id):
         return
     status = _run(client.status())
     current_job = status.pop("current_job", None)
+    cache_block = status.pop("cache", None)
     for key, value in status.items():
         click.echo(f"  {key}: {value}")
     if current_job:
@@ -218,6 +236,23 @@ def server_status(job_id):
         processed = current_job["files_processed"]
         skipped = current_job["files_skipped"]
         click.echo(f"  Indexing: {processed}/{total} files processed ({skipped} skipped)")
+    if cache_block:
+        click.echo("")
+        click.echo(f"Cache: {cache_block['path']}")
+        click.echo(f"  Entries:       {cache_block['total_entries']:,}")
+        size_mb = cache_block["total_bytes"] / (1024 * 1024)
+        click.echo(f"  Size:          {size_mb:.1f} MB")
+        if cache_block["by_model"]:
+            models_line = ", ".join(
+                f"{m} ({c})" for m, c in sorted(cache_block["by_model"].items())
+            )
+            click.echo(f"  Models:        {models_line}")
+        if cache_block.get("last_job_hit_rate") is not None:
+            rate = cache_block["last_job_hit_rate"] * 100
+            click.echo(
+                f"  Last job:      {cache_block['last_job_hits']} hits / "
+                f"{cache_block['last_job_misses']} misses ({rate:.1f}%)"
+            )
 
 
 @cli.command()
@@ -317,3 +352,59 @@ def config():
         output.append(entry)
 
     click.echo(json.dumps(output, indent=2))
+
+
+@cli.group()
+def cache():
+    """Manage the embedding cache."""
+
+
+@cache.command("info")
+def cache_info():
+    """Show cache size, entry count, and model breakdown."""
+    client = _get_client()
+    stats = _run(client.cache_info())
+    click.echo(f"  path:          {stats['path']}")
+    click.echo(f"  total entries: {stats['total_entries']}")
+    size_mb = stats["total_bytes"] / (1024 * 1024)
+    click.echo(f"  total size:    {size_mb:.2f} MB")
+    if stats["by_model"]:
+        click.echo("  by model:")
+        for model, count in sorted(stats["by_model"].items()):
+            click.echo(f"    {model}: {count}")
+    if stats.get("last_job_hit_rate") is not None:
+        rate = stats["last_job_hit_rate"] * 100
+        click.echo(
+            f"  last job:      {stats['last_job_hits']} hits / "
+            f"{stats['last_job_misses']} misses ({rate:.1f}%)"
+        )
+
+
+@cache.command("clear")
+@click.option("--model", default=None, help="Only clear entries for this model")
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+def cache_clear(model, yes):
+    """Delete cache entries. Defaults to everything; --model scopes to one model."""
+    if not yes:
+        click.confirm("Delete cache entries?", abort=True)
+    client = _get_client()
+    result = _run(client.cache_clear(model=model))
+    click.echo(f"Deleted {result['deleted']} entries")
+
+
+@cache.command("prune")
+@click.option(
+    "--older-than",
+    "older_than",
+    required=True,
+    help="Delete entries not accessed in this duration (e.g. 30d, 2w, 6h, 15m)",
+)
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt")
+def cache_prune(older_than, yes):
+    """Delete entries with accessed_at older than the given duration."""
+    older_than_ms = _parse_duration_to_ms(older_than)
+    if not yes:
+        click.confirm("Prune cache entries?", abort=True)
+    client = _get_client()
+    result = _run(client.cache_prune(older_than_ms=older_than_ms))
+    click.echo(f"Pruned {result['deleted']} entries")

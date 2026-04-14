@@ -490,3 +490,62 @@ class TestEnsureServer:
         assert default_timeout >= 15.0, (
             f"Default timeout {default_timeout}s is too short for cold-start; must be >= 15s"
         )
+
+
+class TestGuruClientCache:
+    @pytest.fixture
+    def guru_root(self, tmp_path):
+        guru_dir = tmp_path / ".guru"
+        guru_dir.mkdir()
+        sock = guru_dir / "guru.sock"
+        sock.touch()
+        pid = guru_dir / "guru.pid"
+        pid.write_text("12345")
+        return tmp_path
+
+    @pytest.mark.asyncio
+    async def test_cache_info(self, guru_root, monkeypatch):
+        fake_response = httpx.Response(
+            200,
+            json={
+                "path": "/tmp/embeddings.db",
+                "total_entries": 42,
+                "total_bytes": 1024,
+                "by_model": {"nomic-embed-text": 42},
+            },
+        )
+
+        async def fake_get(self, url, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+        client = GuruClient(guru_root=guru_root)
+        stats = await client.cache_info()
+        assert stats["total_entries"] == 42
+
+    @pytest.mark.asyncio
+    async def test_cache_clear(self, guru_root, monkeypatch):
+        fake_response = httpx.Response(200, json={"deleted": 5})
+
+        async def fake_delete(self, url, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.AsyncClient, "delete", fake_delete)
+
+        client = GuruClient(guru_root=guru_root)
+        result = await client.cache_clear()
+        assert result["deleted"] == 5
+
+    @pytest.mark.asyncio
+    async def test_cache_prune(self, guru_root, monkeypatch):
+        fake_response = httpx.Response(200, json={"deleted": 3})
+
+        async def fake_post(self, url, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+        client = GuruClient(guru_root=guru_root)
+        result = await client.cache_prune(older_than_ms=1000)
+        assert result["deleted"] == 3
