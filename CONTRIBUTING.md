@@ -8,6 +8,12 @@ cd guru
 uv sync --all-packages
 ```
 
+## Agent Instructions
+
+Shared project instructions for coding agents live in [`.agents/AGENTS.md`](.agents/AGENTS.md).
+Root [`AGENTS.md`](AGENTS.md) is a compatibility symlink, and root [`CLAUDE.md`](CLAUDE.md)
+imports `@AGENTS.md` so Claude Code uses the same instructions.
+
 ## Running tests
 
 ```bash
@@ -60,3 +66,4 @@ GitHub Pages package index automatically.
 - `ci.yml` — unit tests per-package (skip if unchanged), e2e behind `require-e2e-tests` label
 - `release.yml` — builds and publishes on tag push
 - `claude-code-review.yml` — Claude review behind `require-claude-review` label
+- `claude.yml` — @claude mentions in PR comments

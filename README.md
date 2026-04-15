@@ -170,6 +170,13 @@ uv tool uninstall guru
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and release process.
 
+## Agent Instructions
+
+Shared project instructions for coding agents live in [`.agents/AGENTS.md`](.agents/AGENTS.md).
+Root [`AGENTS.md`](AGENTS.md) is a compatibility symlink to that file, and root
+[`CLAUDE.md`](CLAUDE.md) imports `@AGENTS.md` so Claude Code reads the same shared
+instructions without duplication.
+
 ## Architecture
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architecture constitution.
