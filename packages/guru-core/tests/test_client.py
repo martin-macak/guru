@@ -549,3 +549,15 @@ class TestGuruClientCache:
         client = GuruClient(guru_root=guru_root)
         result = await client.cache_prune(older_than_ms=1000)
         assert result["deleted"] == 3
+
+
+class TestFromSocket:
+    def test_from_socket_sets_socket_path(self, tmp_path: Path):
+        sock = str(tmp_path / "test.sock")
+        client = GuruClient.from_socket(sock)
+        assert client.socket_path == sock
+
+    def test_from_socket_guru_root_is_none(self, tmp_path: Path):
+        sock = str(tmp_path / "test.sock")
+        client = GuruClient.from_socket(sock)
+        assert client.guru_root is None

@@ -29,6 +29,7 @@ class GuruConfig(BaseModel):
     """Object-form config file. Replaces the legacy flat array of rules."""
 
     model_config = ConfigDict(populate_by_name=True)
+    name: str | None = None
     version: int = 1
     rules: list[Rule] = Field(default_factory=list)
 

@@ -85,3 +85,16 @@ def resolve_config(
 
     merged_rules = merge_rules(global_cfg.rules, local_cfg.rules)
     return GuruConfig(version=1, rules=merged_rules)
+
+
+def federation_dir() -> Path:
+    """Return the federation directory path.
+
+    Uses GURU_FEDERATION_DIR env var if set, otherwise ~/.guru/federation/.
+    """
+    import os
+
+    env = os.environ.get("GURU_FEDERATION_DIR")
+    if env:
+        return Path(env)
+    return Path.home() / ".guru" / "federation"

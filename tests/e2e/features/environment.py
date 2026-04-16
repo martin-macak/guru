@@ -17,6 +17,7 @@ from guru_server.app import create_app
 from guru_server.config import resolve_config
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
+from guru_server.federation import FederationRegistry
 from guru_server.storage import VectorStore
 
 # ---------------------------------------------------------------------------
@@ -393,6 +394,128 @@ def _start_server(
     return server, thread
 
 
+def _create_federation_project(name: str, base_dir: Path, fed_dir: Path) -> Path:
+    """Create a minimal guru project for federation tests.
+
+    Writes a .guru.json with a name field, a .guru/db/ directory,
+    and a few sample docs.  Returns the project root Path.
+    """
+    project_dir = base_dir / name
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    guru_dir = project_dir / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "name": name,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+    }
+    (project_dir / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    docs_dir = project_dir / "docs"
+    docs_dir.mkdir()
+
+    (docs_dir / "overview.md").write_text(f"""\
+---
+title: {name.capitalize()} Overview
+---
+
+# {name.capitalize()} Overview
+
+This is the overview document for the {name} server.
+
+## Summary
+
+The {name} server provides federated search capabilities and indexes documentation.
+""")
+
+    (docs_dir / "guide.md").write_text(f"""\
+---
+title: {name.capitalize()} Guide
+---
+
+# {name.capitalize()} Guide
+
+This guide explains how to use the {name} server.
+
+## Getting Started
+
+Connect to the {name} server using the federation protocol.
+""")
+
+    return project_dir
+
+
+def _start_federation_server(
+    project_dir: Path,
+    embedder: OllamaEmbedder,
+    fed_dir: Path,
+) -> tuple[uvicorn.Server, threading.Thread, FederationRegistry]:
+    """Start a guru server in a thread and register it in the federation directory.
+
+    Returns (server, thread, registry).
+    """
+    socket_path = str(project_dir / ".guru" / "guru.sock")
+    pid_path = project_dir / ".guru" / "guru.pid"
+
+    config = resolve_config(project_root=project_dir)
+    store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
+
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
+    app = create_app(
+        store=store,
+        embedder=embedder,
+        config=config,
+        project_root=str(project_dir),
+        auto_index=False,
+        embed_cache=embed_cache,
+    )
+
+    uvi_config = uvicorn.Config(app, uds=socket_path, log_level="warning")
+    server = uvicorn.Server(uvi_config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+
+    pid = os.getpid()
+    pid_path.write_text(str(pid))
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if Path(socket_path).exists():
+            break
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"guru-server for {project_dir.name} did not start within 10 s")
+
+    # Read project name from .guru.json (fall back to directory name)
+    try:
+        cfg_data = json.loads((project_dir / ".guru.json").read_text())
+        server_name = cfg_data.get("name", project_dir.name)
+    except Exception:
+        server_name = project_dir.name
+
+    registry = FederationRegistry(
+        name=server_name,
+        pid=pid,
+        socket_path=socket_path,
+        project_root=str(project_dir),
+        federation_dir=fed_dir,
+    )
+    registry.register()
+
+    return server, thread, registry
+
+
 def _wait_for_index(project_dir: Path, timeout: float = 30.0) -> None:
     """Poll the server status until no job is running."""
     import httpx
@@ -445,6 +568,7 @@ def before_feature(context, feature):
     Tags decide which project fixture is used:
     - @real_ollama → semantic project with real Ollama embeddings
     - @gitignore_project → git-repo project with gitignored files
+    - @federation → federation tests; no default server is started
     - (default) → standard project with mocked embedder
     """
     # Isolate the embedding cache per feature so scenarios don't pollute each other
@@ -452,6 +576,17 @@ def before_feature(context, feature):
     os.close(cache_fd)
     os.environ["GURU_EMBED_CACHE_PATH"] = cache_name
     context._cache_path = cache_name
+
+    if "federation" in feature.tags:
+        # Federation tests manage their own servers via step definitions.
+        # Create a shared federation directory and a shared embedder.
+        context.fed_dir = Path(tempfile.mkdtemp(prefix="guru-fed-"))
+        context.fed_base_dir = Path(tempfile.mkdtemp(prefix="guru-fed-projects-"))
+        context.embedder = _make_fake_embedder()
+        context.servers = {}
+        context.registries = {}
+        context.fed_project_dirs = {}
+        return
 
     if "real_ollama" in feature.tags:
         context.project_dir = _create_semantic_project()
@@ -481,6 +616,26 @@ def after_feature(context, feature):
         pid_path.unlink(missing_ok=True)
         sock_path.unlink(missing_ok=True)
         shutil.rmtree(context.project_dir, ignore_errors=True)
+
+    # Federation-specific cleanup
+    if hasattr(context, "servers"):
+        for _name, (srv, thr) in context.servers.items():
+            srv.should_exit = True
+            thr.join(timeout=5)
+
+    if hasattr(context, "registries"):
+        for _name, registry in context.registries.items():
+            registry.deregister()
+
+    if hasattr(context, "fed_project_dirs"):
+        for project_path in context.fed_project_dirs.values():
+            shutil.rmtree(project_path, ignore_errors=True)
+
+    if hasattr(context, "fed_base_dir"):
+        shutil.rmtree(context.fed_base_dir, ignore_errors=True)
+
+    if hasattr(context, "fed_dir"):
+        shutil.rmtree(context.fed_dir, ignore_errors=True)
 
     # Clean up the isolated embedding cache
     cache_path = getattr(context, "_cache_path", None)
