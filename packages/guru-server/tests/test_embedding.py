@@ -12,6 +12,9 @@ class TestOllamaEmbedder:
             return httpx.Response(200, json=fake_response)
 
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        # Prevent httpx from picking up sandbox SOCKS proxy env vars
+        monkeypatch.delenv("ALL_PROXY", raising=False)
+        monkeypatch.delenv("all_proxy", raising=False)
 
         import asyncio
 
@@ -30,6 +33,9 @@ class TestOllamaEmbedder:
             return httpx.Response(200, json={"embedding": [0.1 * call_count] * 768})
 
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        # Prevent httpx from picking up sandbox SOCKS proxy env vars
+        monkeypatch.delenv("ALL_PROXY", raising=False)
+        monkeypatch.delenv("all_proxy", raising=False)
 
         import asyncio
 
