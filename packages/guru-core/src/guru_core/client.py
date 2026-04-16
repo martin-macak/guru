@@ -20,6 +20,18 @@ class GuruClient:
         self.guru_root = guru_root
         self.socket_path = str(guru_root / ".guru" / "guru.sock")
 
+    @classmethod
+    def from_socket(cls, socket_path: str) -> GuruClient:
+        """Create a client that connects to an arbitrary socket path.
+
+        Used for federation — connecting to a peer's socket without
+        knowing its guru_root.
+        """
+        instance = cls.__new__(cls)
+        instance.guru_root = None
+        instance.socket_path = socket_path
+        return instance
+
     def _transport(self) -> httpx.AsyncHTTPTransport:
         return httpx.AsyncHTTPTransport(uds=self.socket_path)
 
