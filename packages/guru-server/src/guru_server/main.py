@@ -9,11 +9,13 @@ from pathlib import Path
 import uvicorn
 from platformdirs import user_cache_dir
 
+from guru_core.config import federation_dir
 from guru_core.log import setup_logging
 from guru_server.app import create_app
 from guru_server.config import resolve_config
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
+from guru_server.federation import FederationRegistry
 from guru_server.startup import (
     check_model_available,
     check_ollama_installed,
@@ -91,6 +93,23 @@ def main(argv: list[str] | None = None):
         check_model_available("nomic-embed-text")
 
         config = resolve_config(project_root=Path(project_root))
+
+        # Federation: register this server
+        project_name = config.name or Path(project_root).name
+        fed_registry: FederationRegistry | None = None
+        try:
+            fed_registry = FederationRegistry(
+                name=project_name,
+                pid=os.getpid(),
+                socket_path=str(guru_dir / "guru.sock"),
+                project_root=project_root,
+                federation_dir=federation_dir(),
+            )
+            fed_registry.register()
+        except OSError:
+            logger.warning("Federation registration failed — running standalone", exc_info=True)
+            fed_registry = None
+
         store = VectorStore(db_path=str(guru_dir / "db"))
         embedder = OllamaEmbedder()
 
@@ -119,6 +138,8 @@ def main(argv: list[str] | None = None):
                 log_config=_uvicorn_log_config(),
             )
         finally:
+            if fed_registry is not None:
+                fed_registry.deregister()
             pid_path.unlink(missing_ok=True)
             Path(socket_path).unlink(missing_ok=True)
             logger.info("Server shut down")
