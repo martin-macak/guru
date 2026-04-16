@@ -53,3 +53,21 @@ def test_name_from_legacy_flat_array(tmp_path: Path):
     )
     cfg = resolve_config(project_root=tmp_path)
     assert cfg.name is None
+
+
+def test_name_fallback_to_directory_name(tmp_path: Path):
+    """When config has no name, callers should fall back to directory name.
+
+    GuruConfig.name is None; the convention is `config.name or project_root.name`.
+    """
+    project = tmp_path / "my-cool-project"
+    project.mkdir()
+    config_file = project / ".guru.json"
+    config_file.write_text(
+        json.dumps({"rules": [{"ruleName": "default", "match": {"glob": "**/*.md"}}]})
+    )
+    cfg = resolve_config(project_root=project)
+    assert cfg.name is None
+    # Callers use this pattern for the fallback:
+    effective_name = cfg.name or project.name
+    assert effective_name == "my-cool-project"

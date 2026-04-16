@@ -132,3 +132,46 @@ class TestMainFederationLifecycle:
 
         remaining = list(fed_dir.glob("*.json"))
         assert not remaining, f"Expected no discovery files after shutdown, found: {remaining}"
+
+    def test_discovery_file_uses_directory_name_when_no_config_name(self, monkeypatch, tmp_path):
+        """When guru.json has no name field, the discovery file uses the directory name."""
+        import json
+
+        # Create project with NO name in config
+        project_dir = tmp_path / "my-awesome-project"
+        project_dir.mkdir()
+        guru_dir = project_dir / ".guru"
+        guru_dir.mkdir()
+        config_file = project_dir / ".guru.json"
+        config_file.write_text(json.dumps({"version": 1, "rules": []}))
+
+        fed_dir = tmp_path / "federation"
+        fed_dir.mkdir()
+
+        captured: list[dict] = []
+
+        import guru_server.main as main_mod
+
+        def patched_run(app, **kwargs):
+            files = list(fed_dir.glob("*.json"))
+            assert files, "Expected a discovery file"
+            data = json.loads(files[0].read_text())
+            captured.append(data)
+
+        monkeypatch.setenv("GURU_PROJECT_ROOT", str(project_dir))
+        monkeypatch.setenv("GURU_EMBED_CACHE_PATH", str(project_dir / "cache.db"))
+        monkeypatch.setenv("GURU_FEDERATION_DIR", str(fed_dir))
+
+        monkeypatch.setattr(main_mod, "check_ollama_installed", lambda: None)
+        monkeypatch.setattr(main_mod, "start_ollama_serve", lambda: None)
+        monkeypatch.setattr(main_mod, "stop_ollama_serve", lambda proc: None)
+        monkeypatch.setattr(main_mod, "check_model_available", lambda model: None)
+        monkeypatch.setattr(main_mod.uvicorn, "run", patched_run)
+
+        from guru_server.main import main
+
+        main([])
+
+        assert captured, "uvicorn.run was not called"
+        assert captured[0]["name"] == "my-awesome-project"
+        assert captured[0]["name"] == project_dir.name

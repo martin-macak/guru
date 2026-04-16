@@ -78,6 +78,43 @@ def step_start_single_server(context, name):
     _start_named_server(context, name)
 
 
+@given('a running guru server without a name in its config in directory "{dirname}"')
+def step_start_server_no_config_name(context, dirname):
+    """Start a server whose guru.json has no name field — should use directory name."""
+    from environment import _start_federation_server
+
+    project_dir = context.fed_base_dir / dirname
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    guru_dir = project_dir / ".guru"
+    guru_dir.mkdir(exist_ok=True)
+    (guru_dir / "db").mkdir(exist_ok=True)
+
+    # Config WITHOUT a name field
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+    }
+    (project_dir / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    docs_dir = project_dir / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    (docs_dir / "overview.md").write_text(f"# {dirname} overview\n\nSome docs.")
+
+    server, thread, registry = _start_federation_server(
+        project_dir, context.embedder, context.fed_dir
+    )
+    context.servers[dirname] = (server, thread)
+    context.registries[dirname] = registry
+    context.fed_project_dirs[dirname] = project_dir
+
+
 @given('running guru servers "{names}" with indexed documents')
 def step_start_indexed_servers(context, names):
     """Create and start multiple named federation servers, each with indexed docs."""
