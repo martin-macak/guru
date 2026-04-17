@@ -38,16 +38,19 @@ def start_neo4j(
 ) -> Neo4jRuntime:
     """Spawn neo4j console pointed at data_dir, bind Bolt to loopback port.
 
-    Uses environment variables to configure Neo4j at launch:
-      - NEO4J_server_directories_data
-      - NEO4J_server_bolt_listen__address
-      - NEO4J_server_default__listen__address
-      - NEO4J_dbms_security_auth__enabled = false (local UDS-guarded daemon)
+    Uses environment variables to configure Neo4j at launch. Critically, we
+    override all "directories" paths — including logs and transaction logs —
+    because Homebrew's neo4j.conf hardcodes paths like /opt/homebrew/var/log/
+    that may not be writable in a sandboxed test environment.
     """
     data_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = data_dir.parent / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     env = {
         **os.environ,
         "NEO4J_server_directories_data": str(data_dir),
+        "NEO4J_server_directories_logs": str(logs_dir),
+        "NEO4J_server_directories_transaction_logs_root": str(data_dir / "tx"),
         "NEO4J_server_default_listen_address": "127.0.0.1",
         "NEO4J_server_bolt_listen__address": f"127.0.0.1:{bolt_port}",
         "NEO4J_server_bolt_advertised__address": f"127.0.0.1:{bolt_port}",
