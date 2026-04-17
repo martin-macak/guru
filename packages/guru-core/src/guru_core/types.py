@@ -25,6 +25,12 @@ class Rule(BaseModel):
     chunking: ChunkingConfig | None = None
 
 
+class GraphConfig(BaseModel):
+    """Optional graph plugin configuration."""
+
+    enabled: bool = False
+
+
 class GuruConfig(BaseModel):
     """Object-form config file. Replaces the legacy flat array of rules."""
 
@@ -32,6 +38,7 @@ class GuruConfig(BaseModel):
     name: str | None = None
     version: int = 1
     rules: list[Rule] = Field(default_factory=list)
+    graph: GraphConfig | None = None
 
 
 class SearchRequest(BaseModel):
@@ -136,6 +143,8 @@ class StatusOut(BaseModel):
     model_loaded: bool
     current_job: JobSummary | None = None
     cache: CacheStatsOut | None = None
+    graph_enabled: bool = False
+    graph_reachable: bool = False
 
 
 class IndexOut(BaseModel):

@@ -11,6 +11,7 @@ from guru_core.types import GuruConfig
 from guru_server.api import api_router
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
+from guru_server.graph_integration import build_graph_client_if_enabled, register_self_kb
 from guru_server.indexer import BackgroundIndexer
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
@@ -26,6 +27,16 @@ async def lifespan(app: FastAPI):
 
     # Keep a set of background tasks alive to prevent GC
     _background_tasks: set[asyncio.Task] = set()
+
+    # Register this server's KB node in the graph (silent degrade on failure).
+    try:
+        await register_self_kb(
+            client=app.state.graph_client,
+            name=app.state.project_name,
+            project_root=str(app.state.project_root),
+        )
+    except Exception:
+        logger.exception("register_self_kb raised unexpectedly — continuing")
 
     if app.state.indexer is not None:
         # Auto-index on startup
@@ -108,6 +119,7 @@ def create_app(
     project_root: str | None = None,
     auto_index: bool = True,
     embed_cache: EmbeddingCache | None = None,
+    project_name: str | None = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -149,6 +161,13 @@ def create_app(
         )
     else:
         app.state.indexer = None
+
+    graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
+    app.state.graph_enabled = graph_enabled
+    app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
+    app.state.project_name = (
+        project_name or app.state.config.name or Path(app.state.project_root).name
+    )
 
     app.include_router(api_router)
     return app
