@@ -7,6 +7,18 @@ from guru_core.config import (
     resolve_config,
 )
 from guru_core.discovery import GuruNotFoundError, find_guru_root
+from guru_core.graph_errors import GraphUnavailable
+from guru_core.graph_types import (
+    CypherQuery,
+    Health,
+    KbLink,
+    KbLinkCreate,
+    KbNode,
+    KbUpsert,
+    LinkKind,
+    QueryResult,
+    VersionInfo,
+)
 from guru_core.log import setup_logging
 from guru_core.types import (
     ChunkingConfig,
@@ -28,13 +40,22 @@ from guru_core.types import (
 __all__ = [
     "DEFAULT_RULES",
     "ChunkingConfig",
+    "CypherQuery",
     "DocumentInfo",
     "DocumentListItem",
     "DocumentOut",
+    "GraphUnavailable",
     "GuruClient",
     "GuruNotFoundError",
+    "Health",
     "IndexOut",
+    "KbLink",
+    "KbLinkCreate",
+    "KbNode",
+    "KbUpsert",
+    "LinkKind",
     "MatchConfig",
+    "QueryResult",
     "Rule",
     "SearchRequest",
     "SearchResult",
@@ -44,6 +65,7 @@ __all__ = [
     "ServerStartError",
     "StatusOut",
     "StatusResponse",
+    "VersionInfo",
     "ensure_server",
     "find_guru_root",
     "load_rules",
