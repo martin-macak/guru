@@ -20,6 +20,7 @@ jobs:
       guru-server: ${{ steps.filter.outputs.guru-server }}
       guru-mcp: ${{ steps.filter.outputs.guru-mcp }}
       guru-cli: ${{ steps.filter.outputs.guru-cli }}
+      guru-graph: ${{ steps.filter.outputs.guru-graph }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -34,6 +35,8 @@ jobs:
               - 'packages/guru-mcp/**'
             guru-cli:
               - 'packages/guru-cli/**'
+            guru-graph:
+              - 'packages/guru-graph/**'
 
   unit-tests:
     needs: detect-changes
@@ -50,11 +53,14 @@ jobs:
             changed: ${{ needs.detect-changes.outputs.guru-mcp }}
           - package: guru-cli
             changed: ${{ needs.detect-changes.outputs.guru-cli }}
+          - package: guru-graph
+            changed: ${{ needs.detect-changes.outputs.guru-graph }}
     if: >-
       needs.detect-changes.outputs.guru-core == 'true' ||
       needs.detect-changes.outputs.guru-server == 'true' ||
       needs.detect-changes.outputs.guru-mcp == 'true' ||
-      needs.detect-changes.outputs.guru-cli == 'true'
+      needs.detect-changes.outputs.guru-cli == 'true' ||
+      needs.detect-changes.outputs.guru-graph == 'true'
     steps:
       - if: matrix.changed == 'true'
         uses: actions/checkout@v4
@@ -98,3 +104,46 @@ jobs:
 
       - name: Run BDD e2e tests
         run: uv run behave tests/e2e/features/
+
+  # ---------------------------------------------------------------------------
+  # Graph plugin tests — only when label "require-e2e-tests" is set
+  # ---------------------------------------------------------------------------
+  graph-plugin:
+    if: contains(github.event.pull_request.labels.*.name, 'require-e2e-tests')
+    runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5
+        ports:
+          - 7687:7687
+        env:
+          NEO4J_AUTH: none
+        options: >-
+          --health-cmd "cypher-shell 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - run: uv sync --all-packages
+
+      - name: Run guru-graph tests (including @real_neo4j)
+        env:
+          GURU_REAL_NEO4J: "1"
+          # Point Neo4jBackend at the service container instead of spawning a
+          # local neo4j process (which is not installed on the runner).
+          GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
+        timeout-minutes: 5
+        run: uv run pytest packages/guru-graph/ -v --tb=short --timeout=60
+
+      - name: Run graph BDD scenarios
+        env:
+          GURU_REAL_NEO4J: "1"
+          GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
+        timeout-minutes: 5
+        run: uv run behave tests/e2e/features/graph_plugin.feature

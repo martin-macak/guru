@@ -13,14 +13,16 @@ the developer's machine. There are zero cloud dependencies.
 
 ## Architecture: Server-Centric
 
-- **guru-server** is the single process that owns all state: LanceDB, Ollama, indexing.
+- **guru-server** owns all **per-project** state: LanceDB, Ollama, indexing.
 - **guru-mcp** and **guru-cli** are stateless thin clients that call the server's REST API.
 - No component other than guru-server may access LanceDB or Ollama directly.
+- Machine-wide shared services (currently the optional graph plugin) are owned by their dedicated daemons — not by guru-server. See `## Graph Plugin` below.
 
 ## Transport: Unix Domain Sockets
 
 - Server listens on `.guru/guru.sock` (HTTP over UDS).
-- No TCP ports. No firewall prompts. No port collisions between projects.
+- No TCP ports are used for inter-component communication.
+- **Exception:** third-party backends (currently Neo4j, used by the optional graph plugin) may bind to a loopback-only TCP port. `guru-graph` is responsible for picking a free port dynamically, recording it in state, and restricting exposure to `127.0.0.1`. Bolt traffic never leaves the graph daemon's process boundary.
 - MCP and CLI connect to the server exclusively via UDS through guru-core.
 
 ## Workspace Structure
@@ -99,3 +101,10 @@ packages/
   a complete OpenAPI specification.
 - Feature files (`tests/e2e/features/*.feature`) are part of the specification.
 - Design specs and ADRs live in `docs/`.
+
+## Graph Plugin (optional)
+
+- An optional `guru-graph` package ships in the workspace as a peer of `guru-server`. It is **disabled by default**; users enable it via `~/.config/guru/config.json → graph.enabled = true`.
+- When enabled, a single machine-wide daemon is lazy-started by any guru-server. It owns a Neo4j Community subprocess. All guru-servers on the machine share it.
+- The graph is strictly an augmentation. When the graph is disabled, unreachable, or failing, guru-server MUST continue to serve the user with reduced accuracy; graph failures never propagate to the end user.
+- Clients never talk to Neo4j directly — only to `guru-graph` over UDS. Protocol and schema versions are negotiated per `docs/superpowers/specs/2026-04-17-graph-plugin-design.md` §Schema, versioning & compatibility.

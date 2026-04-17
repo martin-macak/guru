@@ -576,6 +576,35 @@ def before_feature(context, feature):
     - @federation → federation tests; no default server is started
     - (default) → standard project with mocked embedder
     """
+    # Graph plugin scenarios are self-contained — they use GraphClient or a
+    # FakeBackend directly rather than needing a default guru-server startup.
+    # Skip the normal server-bootstrap path.
+    if "graph_plugin" in feature.filename:
+        import os as _os
+        import tempfile as _tempfile
+
+        context.graph_tmp = _tempfile.mkdtemp(prefix="guru-graph-e2e-")
+        context.guru_tmp_cfg = _tempfile.mkdtemp(prefix="guru-e2e-cfg-")
+        _os.environ["XDG_CONFIG_HOME"] = context.guru_tmp_cfg
+        # Isolate all platformdirs dirs so the daemon and Neo4j state land
+        # inside the temp directory, never touching real user directories.
+        _os.environ["XDG_DATA_HOME"] = _os.path.join(context.graph_tmp, "data")
+        _os.environ["XDG_STATE_HOME"] = _os.path.join(context.graph_tmp, "state")
+        _os.environ["XDG_RUNTIME_DIR"] = _os.path.join(context.graph_tmp, "run")
+        # Override platform-specific default (e.g. macOS Library/Application
+        # Support) with a single writable directory so local BDD works even
+        # when the platform default isn't writable under the test sandbox.
+        _os.environ["GURU_GRAPH_HOME"] = _os.path.join(context.graph_tmp, "home")
+
+        # Auto-skip @real_neo4j scenarios unless GURU_REAL_NEO4J=1.
+        if "real_neo4j" in feature.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
+            feature.skip("GURU_REAL_NEO4J=1 not set")
+            return
+        for scenario in feature.scenarios:
+            if "real_neo4j" in scenario.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
+                scenario.skip("GURU_REAL_NEO4J=1 not set")
+        return
+
     # Isolate the embedding cache per feature so scenarios don't pollute each other
     cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
     os.close(cache_fd)
@@ -608,6 +637,35 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """Stop the server and clean up."""
+    if "graph_plugin" in feature.filename:
+        import contextlib as _ctx
+        import os as _os
+        import shutil as _shutil
+
+        # Kill any daemon we started so the next feature run isn't blocked.
+        with _ctx.suppress(Exception):
+            from guru_graph.config import GraphPaths as _GP
+            from guru_graph.lifecycle import read_pid_file as _rpf
+
+            paths = _GP.default()
+            pid = _rpf(paths.pid_file)
+            if pid:
+                with _ctx.suppress(ProcessLookupError):
+                    _os.kill(pid, 15)
+        for attr in ("graph_tmp", "guru_tmp_cfg"):
+            d = getattr(context, attr, None)
+            if d:
+                _shutil.rmtree(d, ignore_errors=True)
+        for key in (
+            "GURU_GRAPH_HOME",
+            "XDG_DATA_HOME",
+            "XDG_STATE_HOME",
+            "XDG_RUNTIME_DIR",
+            "XDG_CONFIG_HOME",
+        ):
+            _os.environ.pop(key, None)
+        return
+
     if hasattr(context, "_mcp_patcher"):
         context._mcp_patcher.stop()
 

@@ -408,3 +408,8 @@ def cache_prune(older_than, yes):
     client = _get_client()
     result = _run(client.cache_prune(older_than_ms=older_than_ms))
     click.echo(f"Pruned {result['deleted']} entries")
+
+
+from guru_cli.commands.graph import graph_group  # noqa: E402
+
+cli.add_command(graph_group)
