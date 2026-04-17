@@ -131,3 +131,23 @@ def test_delete_link(client: TestClient):
     )
     r = client.delete("/kbs/alpha/links/beta/depends_on", headers=_v1_headers())
     assert r.status_code == 204
+
+
+def test_query_route_accepts_read_only(client: TestClient):
+    r = client.post(
+        "/query",
+        json={"cypher": "MATCH (n) RETURN n", "params": {}, "read_only": True},
+        headers=_v1_headers(),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert "columns" in body and "rows" in body and "elapsed_ms" in body
+
+
+def test_query_route_accepts_write(client: TestClient):
+    r = client.post(
+        "/query",
+        json={"cypher": "CREATE (n:X)", "params": {}, "read_only": False},
+        headers=_v1_headers(),
+    )
+    assert r.status_code == 200
