@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import signal
 import sys
 
@@ -40,18 +41,23 @@ def main() -> int:
     _configure_logging(paths.log_file)
     logger = logging.getLogger("guru_graph.main")
 
-    try:
-        check_java_installed()
-        check_neo4j_installed()
-    except RuntimeError as e:
-        logger.error("preflight failed: %s", e)
-        return 2
+    # Connect-only mode: if GURU_NEO4J_BOLT_URI is set, skip preflight (we
+    # don't need a local neo4j binary) and connect to the external Neo4j.
+    external_uri = os.environ.get("GURU_NEO4J_BOLT_URI") or None
+    if external_uri is None:
+        try:
+            check_java_installed()
+            check_neo4j_installed()
+        except RuntimeError as e:
+            logger.error("preflight failed: %s", e)
+            return 2
 
     port = allocate_free_loopback_port()
     backend = Neo4jBackend(
         data_dir=paths.data_dir,
         bolt_port=port,
         log_file=paths.data_dir / "neo4j.log",
+        bolt_uri=external_uri,
     )
     backend.start()
     try:

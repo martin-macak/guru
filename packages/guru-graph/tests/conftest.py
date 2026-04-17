@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 
@@ -24,14 +25,37 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture
 def real_neo4j_backend(tmp_path: Path):
+    """Real Neo4j backend for @real_neo4j tests.
+
+    If `GURU_NEO4J_BOLT_URI` is set, connect-only mode is used (CI + any
+    docker-based setup). Otherwise fall back to subprocess mode, which
+    requires a `neo4j` binary on PATH whose conf we can override.
+    """
     from guru_graph.backend import Neo4jBackend
     from guru_graph.config import allocate_free_loopback_port
 
+    external_uri = os.environ.get("GURU_NEO4J_BOLT_URI") or None
     port = allocate_free_loopback_port()
     data_dir = tmp_path / "neo4j"
     log_file = tmp_path / "neo4j.log"
-    backend = Neo4jBackend(data_dir=data_dir, bolt_port=port, log_file=log_file)
+    backend = Neo4jBackend(
+        data_dir=data_dir,
+        bolt_port=port,
+        log_file=log_file,
+        bolt_uri=external_uri,
+    )
     backend.start()
+    # Connect-only mode shares DB state across tests — wipe before each.
+    if external_uri is not None:
+        backend.execute("MATCH (n) DETACH DELETE n", {})
+        for stmt in (
+            "DROP CONSTRAINT kb_name_unique IF EXISTS",
+            "DROP INDEX kb_updated_at IF EXISTS",
+        ):
+            with contextlib.suppress(Exception):
+                backend.execute(stmt, {})
+        # Reset cached schema_version since we just wiped _Meta.
+        backend._schema_version = 0
     try:
         yield backend
     finally:

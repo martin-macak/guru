@@ -19,7 +19,17 @@ logger = logging.getLogger(__name__)
 
 
 class Neo4jBackend:
-    """Owns a Neo4j subprocess and a Bolt driver pointed at it."""
+    """Owns a Bolt driver pointed at Neo4j.
+
+    Two modes:
+    - **subprocess mode** (default): ``bolt_uri`` is None. ``start()`` spawns
+      ``neo4j console`` as a child process under our control (requires a
+      ``neo4j`` binary on PATH and a writable conf dir).
+    - **connect-only mode**: ``bolt_uri`` is set. ``start()`` connects to an
+      already-running Neo4j at that URI and never touches a subprocess. This
+      is what CI uses with its ``neo4j:5`` service container and what any
+      docker-based local-dev setup should use.
+    """
 
     def __init__(
         self,
@@ -27,10 +37,14 @@ class Neo4jBackend:
         data_dir: Path,
         bolt_port: int,
         log_file: Path,
+        bolt_uri: str | None = None,
     ):
+        if bolt_uri is not None and not bolt_uri.startswith(("bolt://", "neo4j://")):
+            raise ValueError(f"bolt_uri must start with 'bolt://' or 'neo4j://', got {bolt_uri!r}")
         self._data_dir = data_dir
         self._bolt_port = bolt_port
         self._log_file = log_file
+        self._external_bolt_uri = bolt_uri
         self._runtime: Neo4jRuntime | None = None
         self._driver = None
         self._schema_version = 0
@@ -38,12 +52,17 @@ class Neo4jBackend:
 
     # ---- Lifecycle ----
     def start(self) -> None:
-        self._runtime = start_neo4j(
-            data_dir=self._data_dir,
-            bolt_port=self._bolt_port,
-            log_file=self._log_file,
-        )
-        self._driver = GraphDatabase.driver(self._runtime.bolt_uri, auth=None)
+        if self._external_bolt_uri is not None:
+            logger.info("connect-only mode: using external Neo4j at %s", self._external_bolt_uri)
+            bolt_uri = self._external_bolt_uri
+        else:
+            self._runtime = start_neo4j(
+                data_dir=self._data_dir,
+                bolt_port=self._bolt_port,
+                log_file=self._log_file,
+            )
+            bolt_uri = self._runtime.bolt_uri
+        self._driver = GraphDatabase.driver(bolt_uri, auth=None)
         try:
             with self._driver.session() as s:
                 rec = s.run(

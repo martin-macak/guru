@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -16,6 +17,106 @@ from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Homebrew neo4j conf source — used to stage a writable NEO4J_CONF dir.
+# On non-Homebrew installs the conf dir is derived from NEO4J_HOME/conf.
+_HOMEBREW_CONF_CANDIDATES = [
+    Path("/opt/homebrew/Cellar"),  # Apple Silicon
+    Path("/usr/local/Cellar"),  # Intel Mac
+]
+
+
+def _find_homebrew_neo4j_conf() -> Path | None:
+    """Return the first existing neo4j conf/ dir inside any Homebrew Cellar."""
+    for cellar in _HOMEBREW_CONF_CANDIDATES:
+        if not cellar.is_dir():
+            continue
+        # e.g. /opt/homebrew/Cellar/neo4j/<version>/libexec/conf/
+        for candidate in sorted(cellar.glob("neo4j/*/libexec/conf"), reverse=True):
+            if candidate.is_dir():
+                return candidate
+    return None
+
+
+def _stage_neo4j_conf(
+    conf_staging_dir: Path,
+    *,
+    data_dir: Path,
+    logs_dir: Path,
+    run_dir: Path,
+    bolt_port: int,
+) -> None:
+    """Copy Homebrew neo4j conf into *conf_staging_dir* and patch directory paths.
+
+    Neo4j reads its configuration from the directory pointed to by the
+    ``NEO4J_CONF`` environment variable (defaults to ``$NEO4J_HOME/conf``).
+    Homebrew's packaged ``neo4j.conf`` hardcodes ``server.directories.data``
+    and ``server.directories.logs`` to paths under ``/opt/homebrew/var/``.
+    By staging our own conf dir with those paths replaced we keep all runtime
+    files inside our writable ``data_dir``.
+    """
+    conf_staging_dir.mkdir(parents=True, exist_ok=True)
+    src_conf = _find_homebrew_neo4j_conf()
+    if src_conf is not None:
+        logger.debug("Staging NEO4J_CONF from %s → %s", src_conf, conf_staging_dir)
+        for src_file in src_conf.iterdir():
+            shutil.copy2(src_file, conf_staging_dir / src_file.name)
+    else:
+        logger.debug("No Homebrew neo4j conf found; writing minimal neo4j.conf")
+
+    # Keys we want to control — strip any existing declarations from the
+    # copied neo4j.conf so we don't get "declared multiple times" errors.
+    _KEYS_TO_OVERRIDE = {
+        "server.directories.data",
+        "server.directories.logs",
+        "server.directories.run",
+        "server.directories.transaction.logs.root",
+        "dbms.security.auth_enabled",
+        "server.http.enabled",
+        "server.https.enabled",
+        "server.bolt.listen_address",
+        "server.bolt.advertised_address",
+        "server.default_listen_address",
+    }
+
+    neo4j_conf = conf_staging_dir / "neo4j.conf"
+    if neo4j_conf.exists():
+        lines = neo4j_conf.read_text(encoding="utf-8").splitlines(keepends=True)
+        filtered = []
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith("#") or "=" not in stripped:
+                filtered.append(line)
+                continue
+            key = stripped.split("=", 1)[0].strip()
+            if key not in _KEYS_TO_OVERRIDE:
+                filtered.append(line)
+            # else: drop the line — we'll re-add controlled values below
+        neo4j_conf.write_text("".join(filtered), encoding="utf-8")
+
+    overrides = "\n".join(
+        [
+            "",
+            "# --- guru-graph runtime overrides (written by neo4j_process.py) ---",
+            f"server.directories.data={data_dir}",
+            f"server.directories.logs={logs_dir}",
+            f"server.directories.run={run_dir}",
+            f"server.directories.transaction.logs.root={data_dir / 'tx'}",
+            "dbms.security.auth_enabled=false",
+            # Disable HTTP/HTTPS so Jetty never tries to decompress static
+            # content into the OS temp dir (which may be sandbox-restricted).
+            "server.http.enabled=false",
+            "server.https.enabled=false",
+            # Bind Bolt to the loopback address on the caller-chosen port.
+            f"server.bolt.listen_address=127.0.0.1:{bolt_port}",
+            f"server.bolt.advertised_address=127.0.0.1:{bolt_port}",
+            "server.default_listen_address=127.0.0.1",
+            "",
+        ]
+    )
+    with neo4j_conf.open("a") as fh:
+        fh.write(overrides)
+    logger.debug("Wrote NEO4J_CONF overrides to %s", neo4j_conf)
 
 
 class Neo4jStartError(RuntimeError):
@@ -38,25 +139,30 @@ def start_neo4j(
 ) -> Neo4jRuntime:
     """Spawn neo4j console pointed at data_dir, bind Bolt to loopback port.
 
-    Uses environment variables to configure Neo4j at launch. Critically, we
-    override all "directories" paths — including logs and transaction logs —
-    because Homebrew's neo4j.conf hardcodes paths like /opt/homebrew/var/log/
-    that may not be writable in a sandboxed test environment.
+    Stages a private NEO4J_CONF directory so that Homebrew's neo4j binary
+    picks up our writable paths instead of the hardcoded /opt/homebrew/var/…
+    entries in the system neo4j.conf.  The NEO4J_CONF env var is the official
+    Neo4j mechanism for pointing at an alternative conf directory.
     """
     data_dir.mkdir(parents=True, exist_ok=True)
     logs_dir = data_dir.parent / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = data_dir.parent / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    conf_dir = data_dir.parent / "conf"
+    _stage_neo4j_conf(
+        conf_dir,
+        data_dir=data_dir,
+        logs_dir=logs_dir,
+        run_dir=run_dir,
+        bolt_port=bolt_port,
+    )
+
     env = {
         **os.environ,
-        "NEO4J_server_directories_data": str(data_dir),
-        "NEO4J_server_directories_logs": str(logs_dir),
-        "NEO4J_server_directories_transaction_logs_root": str(data_dir / "tx"),
-        "NEO4J_server_default_listen_address": "127.0.0.1",
-        "NEO4J_server_bolt_listen__address": f"127.0.0.1:{bolt_port}",
-        "NEO4J_server_bolt_advertised__address": f"127.0.0.1:{bolt_port}",
-        "NEO4J_server_http_enabled": "false",
-        "NEO4J_server_https_enabled": "false",
-        "NEO4J_dbms_security_auth__enabled": "false",
+        # Point Neo4j at our staged conf dir so it ignores Homebrew's defaults.
+        "NEO4J_CONF": str(conf_dir),
     }
     log_file.parent.mkdir(parents=True, exist_ok=True)
     log_fd = open(log_file, "ab")  # noqa: SIM115 - intentionally held for subprocess lifetime

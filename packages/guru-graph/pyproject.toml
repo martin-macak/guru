@@ -47,6 +47,7 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+addopts = "--timeout=60 --timeout-method=thread"
 markers = [
     "real_neo4j: tests that require a running Neo4j 5.x instance (skipped by default)",
 ]
