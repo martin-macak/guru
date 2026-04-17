@@ -1,0 +1,204 @@
+"""HTTP-over-UDS client for guru-graph daemon.
+
+Lives in guru-core so guru-server, guru-cli, and guru-mcp can share it.
+Never imports the Neo4j driver — the daemon is the only code that talks
+to Neo4j.
+
+All transport failures and protocol/health errors are translated to
+GraphUnavailable so consumers can use graph_or_skip to degrade silently.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Literal
+from urllib.parse import quote
+
+import httpx
+
+from .graph_errors import GraphUnavailable
+from .graph_types import (
+    CypherQuery,
+    Health,
+    KbLink,
+    KbLinkCreate,
+    KbNode,
+    KbUpsert,
+    LinkKind,
+    QueryResult,
+    VersionInfo,
+)
+
+logger = logging.getLogger(__name__)
+
+PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_HEADER = "X-Guru-Graph-Protocol"
+
+
+class GraphClient:
+    """Async HTTP/UDS client. Raises GraphUnavailable on any failure to reach
+    the daemon, 503, 426, timeout, or stale socket.
+    """
+
+    _timeout = httpx.Timeout(5.0, read=30.0)
+
+    def __init__(
+        self,
+        *,
+        socket_path: str,
+        auto_start: bool = True,
+        ready_timeout_seconds: float = 30.0,
+    ):
+        self.socket_path = socket_path
+        self.auto_start = auto_start
+        self._ready_timeout = ready_timeout_seconds
+
+    def _transport(self) -> httpx.AsyncHTTPTransport:
+        return httpx.AsyncHTTPTransport(uds=self.socket_path)
+
+    def _headers(self) -> dict[str, str]:
+        return {PROTOCOL_HEADER: PROTOCOL_VERSION}
+
+    async def _ensure_daemon(self) -> None:
+        if not self.auto_start:
+            return
+        try:
+            from guru_graph.config import GraphPaths
+            from guru_graph.lifecycle import connect_or_spawn
+        except ImportError:
+            return
+        paths = GraphPaths.default()
+        if Path(self.socket_path) == paths.socket:
+            await asyncio.to_thread(
+                connect_or_spawn,
+                paths=paths,
+                ready_timeout_seconds=self._ready_timeout,
+            )
+
+    async def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+    ) -> httpx.Response:
+        try:
+            await self._ensure_daemon()
+        except Exception as e:
+            raise GraphUnavailable(f"autostart failed: {e}") from e
+        try:
+            async with httpx.AsyncClient(
+                transport=self._transport(),
+                timeout=self._timeout,
+            ) as client:
+                resp = await client.request(
+                    method,
+                    f"http://localhost{path}",
+                    headers=self._headers(),
+                    json=json,
+                )
+        except httpx.HTTPError as e:
+            raise GraphUnavailable(f"transport error: {e}") from e
+        except FileNotFoundError as e:
+            raise GraphUnavailable(f"socket missing: {e}") from e
+
+        if resp.status_code == 426:
+            raise GraphUnavailable(f"protocol upgrade required: {resp.json()}")
+        if resp.status_code == 503:
+            raise GraphUnavailable(f"daemon unhealthy: {resp.text}")
+        if resp.status_code >= 500:
+            raise GraphUnavailable(f"daemon error {resp.status_code}: {resp.text}")
+        return resp
+
+    async def health(self) -> Health:
+        resp = await self._request("GET", "/health")
+        if resp.status_code != 200:
+            raise GraphUnavailable(f"unexpected {resp.status_code}")
+        return Health.model_validate(resp.json())
+
+    async def version(self) -> VersionInfo:
+        resp = await self._request("GET", "/version")
+        return VersionInfo.model_validate(resp.json())
+
+    async def upsert_kb(self, req: KbUpsert) -> KbNode:
+        resp = await self._request("POST", "/kbs", json=req.model_dump())
+        return KbNode.model_validate(resp.json())
+
+    async def get_kb(self, name: str) -> KbNode | None:
+        resp = await self._request("GET", f"/kbs/{quote(name, safe='')}")
+        if resp.status_code == 404:
+            return None
+        return KbNode.model_validate(resp.json())
+
+    async def list_kbs(
+        self,
+        *,
+        prefix: str | None = None,
+        tag: str | None = None,
+    ) -> list[KbNode]:
+        qs = []
+        if prefix:
+            qs.append(f"prefix={quote(prefix)}")
+        if tag:
+            qs.append(f"tag={quote(tag)}")
+        path = "/kbs" + ("?" + "&".join(qs) if qs else "")
+        resp = await self._request("GET", path)
+        return [KbNode.model_validate(r) for r in resp.json()]
+
+    async def delete_kb(self, name: str) -> bool:
+        resp = await self._request("DELETE", f"/kbs/{quote(name, safe='')}")
+        return resp.status_code == 204
+
+    async def link_kbs(
+        self,
+        *,
+        from_kb: str,
+        to_kb: str,
+        kind: LinkKind,
+        metadata: dict | None = None,
+    ) -> KbLink:
+        body = KbLinkCreate(to_kb=to_kb, kind=kind, metadata=metadata or {})
+        resp = await self._request(
+            "POST",
+            f"/kbs/{quote(from_kb, safe='')}/links",
+            json=body.model_dump(mode="json"),
+        )
+        return KbLink.model_validate(resp.json())
+
+    async def unlink_kbs(
+        self,
+        *,
+        from_kb: str,
+        to_kb: str,
+        kind: LinkKind,
+    ) -> bool:
+        resp = await self._request(
+            "DELETE",
+            f"/kbs/{quote(from_kb, safe='')}/links/{quote(to_kb, safe='')}/{kind.value}",
+        )
+        return resp.status_code == 204
+
+    async def list_links(
+        self,
+        *,
+        name: str,
+        direction: Literal["in", "out", "both"] = "both",
+    ) -> list[KbLink]:
+        resp = await self._request(
+            "GET",
+            f"/kbs/{quote(name, safe='')}/links?direction={direction}",
+        )
+        return [KbLink.model_validate(r) for r in resp.json()]
+
+    async def query(
+        self,
+        *,
+        cypher: str,
+        params: dict | None = None,
+        read_only: bool = True,
+    ) -> QueryResult:
+        q = CypherQuery(cypher=cypher, params=params or {}, read_only=read_only)
+        resp = await self._request("POST", "/query", json=q.model_dump())
+        return QueryResult.model_validate(resp.json())

@@ -7,6 +7,7 @@ from guru_core.config import (
     resolve_config,
 )
 from guru_core.discovery import GuruNotFoundError, find_guru_root
+from guru_core.graph_client import GraphClient
 from guru_core.graph_errors import GraphUnavailable
 from guru_core.graph_types import (
     CypherQuery,
@@ -44,6 +45,7 @@ __all__ = [
     "DocumentInfo",
     "DocumentListItem",
     "DocumentOut",
+    "GraphClient",
     "GraphUnavailable",
     "GuruClient",
     "GuruNotFoundError",
