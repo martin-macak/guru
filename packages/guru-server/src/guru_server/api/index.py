@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, Request
 
 from guru_server.api.models import IndexAccepted
+from guru_server.embedding import EmbeddingError
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,15 @@ async def trigger_index(request: Request):
     indexer = request.app.state.indexer
     if indexer is None:
         raise HTTPException(status_code=503, detail="Indexer not available")
+
+    # Sanity-check Ollama before accepting the indexing request
+    embedder = request.app.state.embedder
+    if embedder is not None and hasattr(embedder, "check_health"):
+        try:
+            await embedder.check_health()
+        except EmbeddingError as exc:
+            logger.error("Ollama health check failed: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     registry = request.app.state.job_registry
 
