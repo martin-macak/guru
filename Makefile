@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-PACKAGES := packages/guru-core packages/guru-server packages/guru-mcp packages/guru-cli
+PACKAGES := packages/guru-core packages/guru-server packages/guru-mcp packages/guru-cli packages/guru-graph
 
 # ─── Help ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +20,7 @@ help:
 	@echo "  test-e2e           BDD e2e tests (serial)"
 	@echo "  test-e2e-parallel  BDD e2e tests (parallel, one process per feature)"
 	@echo "  test-all           All tests: unit + integration + e2e"
+	@echo "  test-graph         Graph plugin tests including @real_neo4j (requires Neo4j)"
 	@echo ""
 	@echo "Build"
 	@echo "  build              Build all 5 wheels into dist/"
@@ -62,6 +63,11 @@ test: test-unit test-integration
 
 .PHONY: test-all
 test-all: test-unit test-integration test-e2e
+
+.PHONY: test-graph
+test-graph:
+	GURU_REAL_NEO4J=1 uv run pytest packages/guru-graph/ -v --tb=short
+	GURU_REAL_NEO4J=1 uv run behave tests/e2e/features/graph_plugin.feature
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 
