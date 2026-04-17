@@ -51,6 +51,7 @@ asyncio_mode = "auto"
 addopts = "--import-mode=importlib -m 'not slow'"
 markers = [
     "slow: end-to-end tests that start a real server (deselected by default, run with: -m slow)",
+    "real_neo4j: tests that require a running Neo4j (skipped unless GURU_REAL_NEO4J=1)",
 ]
 
 [dependency-groups]
