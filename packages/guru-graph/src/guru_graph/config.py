@@ -8,6 +8,7 @@ Storage layout (see spec §Architecture):
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 from dataclasses import dataclass
@@ -26,6 +27,12 @@ class GraphPaths:
 
     @classmethod
     def default(cls) -> GraphPaths:
+        # GURU_GRAPH_HOME short-circuits platform detection. All paths land
+        # under the given directory. Used by the BDD test environment and
+        # any containerized deployment that needs a single writable dir.
+        override = os.environ.get("GURU_GRAPH_HOME") or None
+        if override:
+            return cls.for_test(base=Path(override))
         if sys.platform == "darwin":
             base = Path(platformdirs.user_data_dir("guru", appauthor=False)) / "graph"
             sock = Path(platformdirs.user_data_dir("guru", appauthor=False)) / "graph.sock"

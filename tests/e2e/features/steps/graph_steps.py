@@ -231,13 +231,23 @@ def step_server_returns(context, code):
 
 @then("GraphClient raises GraphUnavailable")
 def step_graph_client_raises(context):
+    """Force the client to send an incompatible MAJOR version.
+
+    The previous step already asserted a 426 with the raw header. Here we
+    re-issue through GraphClient to verify the end-to-end translation to
+    GraphUnavailable. A default client would send the matching protocol
+    version and get 200, which is not what this scenario is testing.
+    """
+    from unittest.mock import patch
+
     from guru_graph.config import GraphPaths
 
     paths = GraphPaths.default()
     client = GraphClient(socket_path=str(paths.socket), auto_start=False)
     raised = False
     try:
-        asyncio.run(client.health())
+        with patch("guru_core.graph_client.PROTOCOL_VERSION", "99.0.0"):
+            asyncio.run(client.health())
     except GraphUnavailable:
         raised = True
-    assert raised
+    assert raised, "GraphClient did not raise GraphUnavailable on 426"

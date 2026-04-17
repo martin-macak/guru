@@ -11,13 +11,13 @@ bump; renaming or removing a value is a MAJOR bump.
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class LinkKind(str, Enum):
+class LinkKind(StrEnum):
     """Controlled vocabulary for KB-to-KB relationship kinds.
 
     Each value is documented below. The vocabulary is closed in protocol v1;
