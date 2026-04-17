@@ -50,6 +50,7 @@ def mock_embedder():
     embedder = MagicMock()
     embedder.embed = AsyncMock(return_value=[0.1] * 768)
     embedder.embed_batch = AsyncMock(return_value=[[0.1] * 768])
+    embedder.check_health = AsyncMock()
     return embedder
 
 
@@ -124,6 +125,25 @@ def test_post_index_returns_existing_job(mock_store, mock_embedder):
         data = resp.json()
         assert data["job_id"] == job.job_id
         assert data["message"] == "Indexing already in progress"
+
+
+def test_post_index_rejects_when_ollama_unhealthy(mock_store):
+    """When the embedder health check fails, /index should return 503."""
+    from guru_server.embedding import EmbeddingError
+
+    embedder = MagicMock()
+    embedder.check_health = AsyncMock(
+        side_effect=EmbeddingError(
+            "Ollama embedding test failed (HTTP 500): bad request\n"
+            "This often happens when the Ollama daemon is outdated.\n"
+            "Try: brew services restart ollama"
+        )
+    )
+    app = create_app(store=mock_store, embedder=embedder, auto_index=False)
+    with TestClient(app) as c:
+        resp = c.post("/index", json={})
+        assert resp.status_code == 503
+        assert "outdated" in resp.json()["detail"]
 
 
 def test_get_job_detail(mock_store, mock_embedder):

@@ -350,6 +350,11 @@ def _make_fake_embedder() -> OllamaEmbedder:
 
     embedder.embed = _fake_embed
     embedder.embed_batch = _fake_embed_batch
+
+    async def _fake_check_health() -> None:
+        pass
+
+    embedder.check_health = _fake_check_health
     return embedder
 
 

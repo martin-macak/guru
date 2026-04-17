@@ -91,6 +91,11 @@ def mock_embedder():
 
     embedder.embed = fake_embed
     embedder.embed_batch = batch_embed
+
+    async def fake_check_health():
+        pass
+
+    embedder.check_health = fake_check_health
     return embedder
 
 
