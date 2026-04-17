@@ -571,6 +571,26 @@ def before_feature(context, feature):
     - @federation → federation tests; no default server is started
     - (default) → standard project with mocked embedder
     """
+    # Graph plugin scenarios are self-contained — they use GraphClient or a
+    # FakeBackend directly rather than needing a default guru-server startup.
+    # Skip the normal server-bootstrap path.
+    if "graph_plugin" in feature.filename:
+        import os as _os
+        import tempfile as _tempfile
+
+        context.graph_tmp = _tempfile.mkdtemp(prefix="guru-graph-e2e-")
+        context.guru_tmp_cfg = _tempfile.mkdtemp(prefix="guru-e2e-cfg-")
+        _os.environ.setdefault("XDG_CONFIG_HOME", context.guru_tmp_cfg)
+
+        # Auto-skip @real_neo4j scenarios unless GURU_REAL_NEO4J=1.
+        if "real_neo4j" in feature.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
+            feature.skip("GURU_REAL_NEO4J=1 not set")
+            return
+        for scenario in feature.scenarios:
+            if "real_neo4j" in scenario.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
+                scenario.skip("GURU_REAL_NEO4J=1 not set")
+        return
+
     # Isolate the embedding cache per feature so scenarios don't pollute each other
     cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
     os.close(cache_fd)
@@ -603,6 +623,15 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """Stop the server and clean up."""
+    if "graph_plugin" in feature.filename:
+        import shutil as _shutil
+
+        for attr in ("graph_tmp", "guru_tmp_cfg"):
+            d = getattr(context, attr, None)
+            if d:
+                _shutil.rmtree(d, ignore_errors=True)
+        return
+
     if hasattr(context, "_mcp_patcher"):
         context._mcp_patcher.stop()
 
