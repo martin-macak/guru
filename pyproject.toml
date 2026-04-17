@@ -22,6 +22,7 @@ dependencies = [
     "guru-server=={{ version }}",
     "guru-mcp=={{ version }}",
     "guru-cli=={{ version }}",
+    "guru-graph=={{ version }}",
 ]
 
 [tool.uv-dynamic-versioning]
@@ -43,6 +44,7 @@ guru-core = { workspace = true }
 guru-server = { workspace = true }
 guru-mcp = { workspace = true }
 guru-cli = { workspace = true }
+guru-graph = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -63,7 +65,7 @@ dev = [
 [tool.ruff]
 target-version = "py313"
 line-length = 99
-src = ["packages/guru-core/src", "packages/guru-server/src", "packages/guru-mcp/src", "packages/guru-cli/src"]
+src = ["packages/guru-core/src", "packages/guru-server/src", "packages/guru-mcp/src", "packages/guru-cli/src", "packages/guru-graph/src"]
 
 [tool.ruff.lint]
 select = [
@@ -81,4 +83,4 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["guru_core", "guru_server", "guru_mcp", "guru_cli"]
+known-first-party = ["guru_core", "guru_server", "guru_mcp", "guru_cli", "guru_graph"]

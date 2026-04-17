@@ -1,0 +1,52 @@
+[project]
+name = "guru-graph"
+dynamic = ["version", "dependencies"]
+description = "Guru graph plugin — FastAPI daemon over Neo4j providing domain-shaped KB graph API"
+readme = "README.md"
+authors = [
+    { name = "Martin Macak", email = "martin.macak@gmail.com" }
+]
+requires-python = ">=3.13"
+
+[project.scripts]
+guru-graph-daemon = "guru_graph.main:main"
+
+[tool.uv.sources]
+guru-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies = [
+    "guru-core=={{ version }}",
+    "fastapi>=0.115",
+    "uvicorn>=0.34",
+    "httpx>=0.28",
+    "pydantic>=2.0",
+    "neo4j>=5.25",
+    "platformdirs>=4.0",
+]
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["src"]
+markers = [
+    "real_neo4j: tests that require a running Neo4j 5.x instance (skipped by default)",
+]
