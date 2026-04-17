@@ -13,7 +13,7 @@ from typing import Literal
 
 from guru_core.graph_types import KbLink, KbLinkCreate, KbNode, KbUpsert, LinkKind
 
-from ..backend.base import GraphBackend
+from ..backend.base import KbOpsBackend
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class KbService:
     support this service without the service knowing about Cypher.
     """
 
-    def __init__(self, *, backend: GraphBackend):
+    def __init__(self, *, backend: KbOpsBackend):
         self._backend = backend
 
     def upsert(self, req: KbUpsert) -> KbNode:

@@ -32,7 +32,6 @@ Feature: Optional graph plugin
     Then the server returns 426
     And GraphClient raises GraphUnavailable
 
-  @real_neo4j
   Scenario: Daemon unhealthy → guru-server continues in degraded mode
     Given a guru-server configured with graph enabled but the daemon is unreachable
     When I query status

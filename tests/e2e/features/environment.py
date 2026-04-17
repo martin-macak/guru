@@ -581,6 +581,11 @@ def before_feature(context, feature):
         context.graph_tmp = _tempfile.mkdtemp(prefix="guru-graph-e2e-")
         context.guru_tmp_cfg = _tempfile.mkdtemp(prefix="guru-e2e-cfg-")
         _os.environ.setdefault("XDG_CONFIG_HOME", context.guru_tmp_cfg)
+        # Isolate all platformdirs dirs so the daemon and Neo4j state land
+        # inside the temp directory, never touching real user directories.
+        _os.environ["XDG_DATA_HOME"] = _os.path.join(context.graph_tmp, "data")
+        _os.environ["XDG_STATE_HOME"] = _os.path.join(context.graph_tmp, "state")
+        _os.environ["XDG_RUNTIME_DIR"] = _os.path.join(context.graph_tmp, "run")
 
         # Auto-skip @real_neo4j scenarios unless GURU_REAL_NEO4J=1.
         if "real_neo4j" in feature.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":

@@ -79,14 +79,21 @@ def main() -> int:
         signal.signal(signal.SIGTERM, _handle_sig)
         signal.signal(signal.SIGINT, _handle_sig)
 
-        config = uvicorn.Config(
-            app,
-            uds=str(paths.socket),
-            log_level="info",
-            access_log=False,
-        )
-        server = uvicorn.Server(config=config)
-        server.run()
+        # Set a restrictive umask so the UDS socket file is created as
+        # owner-only (mode 0o600), preventing other local users from
+        # connecting to the /query escape-hatch route.
+        old_umask = os.umask(0o077)
+        try:
+            config = uvicorn.Config(
+                app,
+                uds=str(paths.socket),
+                log_level="info",
+                access_log=False,
+            )
+            server = uvicorn.Server(config=config)
+            server.run()
+        finally:
+            os.umask(old_umask)
     finally:
         backend.stop()
         with contextlib.suppress(FileNotFoundError):

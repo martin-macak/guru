@@ -66,10 +66,4 @@ async def register_self_kb(
 def build_graph_client_if_enabled(*, graph_enabled: bool) -> GraphClient | None:
     if not graph_enabled:
         return None
-    try:
-        from guru_graph.config import GraphPaths  # type: ignore
-    except ImportError:
-        logger.warning("graph.enabled=true but guru-graph is not installed")
-        return None
-    paths = GraphPaths.default()
-    return GraphClient(socket_path=str(paths.socket), auto_start=True)
+    return GraphClient(socket_path=None, auto_start=True)

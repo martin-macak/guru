@@ -135,6 +135,8 @@ jobs:
       - name: Run guru-graph tests (including @real_neo4j)
         env:
           GURU_REAL_NEO4J: "1"
+          # Point Neo4jBackend at the service container instead of spawning a
+          # local neo4j process (which is not installed on the runner).
           GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
         timeout-minutes: 5
         run: uv run pytest packages/guru-graph/ -v --tb=short --timeout=60

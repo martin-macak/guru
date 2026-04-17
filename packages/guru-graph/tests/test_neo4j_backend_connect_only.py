@@ -63,7 +63,7 @@ def test_connect_only_mode_uses_given_bolt_uri(tmp_path: Path):
 
     fake_start.assert_not_called()
     fake_driver.assert_called_once()
-    args, kwargs = fake_driver.call_args
+    args, _kwargs = fake_driver.call_args
     assert args[0] == "bolt://ci-neo4j:7687"
 
 

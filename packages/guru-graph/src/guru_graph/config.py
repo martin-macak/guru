@@ -68,8 +68,7 @@ def allocate_free_loopback_port() -> int:
     """Bind to 127.0.0.1:0 and return the OS-assigned port.
 
     TOCTOU caveat: another process could grab the port between this call and
-    the Neo4j subprocess binding. In practice, Neo4j starts quickly and we
-    fall back to one retry in the lifecycle path if the port was stolen.
+    the eventual consumer binding it.
     """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:

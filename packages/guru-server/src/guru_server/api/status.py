@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import asyncio
+
 from fastapi import APIRouter, Request
 
 from guru_core.graph_errors import GraphUnavailable
@@ -5,6 +9,8 @@ from guru_server.api.cache import _assemble_stats
 from guru_server.api.models import StatusOut
 
 router = APIRouter()
+
+_GRAPH_HEALTH_TIMEOUT = 2.0  # seconds; keep /status fast even when graph is slow
 
 
 @router.get("/status", response_model=StatusOut)
@@ -21,9 +27,9 @@ async def get_status(request: Request):
     client = getattr(request.app.state, "graph_client", None)
     if client is not None:
         try:
-            h = await client.health()
+            h = await asyncio.wait_for(client.health(), timeout=_GRAPH_HEALTH_TIMEOUT)
             graph_reachable = bool(h.graph_reachable)
-        except GraphUnavailable:
+        except (GraphUnavailable, TimeoutError):
             graph_reachable = False
         except Exception:
             graph_reachable = False

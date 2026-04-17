@@ -64,6 +64,32 @@ class GraphBackend(Protocol):
     def ensure_schema(self, target_version: int) -> None: ...
 
 
+@runtime_checkable
+class KbOpsBackend(GraphBackend, Protocol):
+    """Extension of GraphBackend with declarative KB and link helpers.
+
+    KbService is typed against this protocol so that static checkers and IDEs
+    get full coverage of the declarative methods without polluting the
+    Cypher-only GraphBackend surface.
+    """
+
+    def upsert_kb(
+        self, *, name: str, project_root: str, tags: list[str], metadata_json: str
+    ) -> None: ...
+    def get_kb(self, name: str) -> dict[str, Any] | None: ...
+    def list_kbs(
+        self, *, prefix: str | None = None, tag: str | None = None
+    ) -> list[dict[str, Any]]: ...
+    def delete_kb(self, name: str) -> bool: ...
+    def link(
+        self, *, from_kb: str, to_kb: str, kind: str, metadata_json: str
+    ) -> None: ...
+    def unlink(self, *, from_kb: str, to_kb: str, kind: str) -> bool: ...
+    def list_links_for(
+        self, *, name: str, direction: str = "both"
+    ) -> list[dict[str, Any]]: ...
+
+
 class GraphBackendRegistry:
     """Registry for available GraphBackend implementations.
 

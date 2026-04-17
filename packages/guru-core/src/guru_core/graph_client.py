@@ -40,6 +40,11 @@ PROTOCOL_HEADER = "X-Guru-Graph-Protocol"
 class GraphClient:
     """Async HTTP/UDS client. Raises GraphUnavailable on any failure to reach
     the daemon, 503, 426, timeout, or stale socket.
+
+    Pass ``socket_path=None`` (the default) to let the client discover the
+    platform-default socket path from ``guru_graph.config.GraphPaths`` at
+    call time. This keeps guru-server and guru-cli free of a compile-time
+    dependency on guru-graph.
     """
 
     _timeout = httpx.Timeout(5.0, read=30.0)
@@ -47,13 +52,25 @@ class GraphClient:
     def __init__(
         self,
         *,
-        socket_path: str,
+        socket_path: str | None = None,
         auto_start: bool = True,
         ready_timeout_seconds: float = 30.0,
     ):
-        self.socket_path = socket_path
+        self._socket_path = socket_path
         self.auto_start = auto_start
         self._ready_timeout = ready_timeout_seconds
+
+    @property
+    def socket_path(self) -> str:
+        """Return the effective socket path, discovering it lazily if needed."""
+        if self._socket_path is not None:
+            return self._socket_path
+        try:
+            from guru_graph.config import GraphPaths  # type: ignore
+
+            return str(GraphPaths.default().socket)
+        except ImportError as e:
+            raise GraphUnavailable("guru-graph is not installed") from e
 
     def _transport(self) -> httpx.AsyncHTTPTransport:
         return httpx.AsyncHTTPTransport(uds=self.socket_path)

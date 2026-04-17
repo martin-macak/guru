@@ -119,7 +119,28 @@ def step_kbs_exist(context, a, b):
 
 @given("a guru-server configured with graph enabled but the daemon is unreachable")
 def step_server_graph_enabled_daemon_down(context):
-    os.environ["GURU_GRAPH_ENABLED"] = "true"
+    from unittest.mock import AsyncMock, MagicMock
+
+    from fastapi.testclient import TestClient
+
+    from guru_server.app import create_app
+
+    mock_store = MagicMock()
+    mock_store.chunk_count.return_value = 0
+    mock_store.document_count.return_value = 0
+    mock_store.search.return_value = []
+    mock_embedder = MagicMock()
+    mock_embedder.embed = AsyncMock(return_value=[0.0] * 768)
+    mock_embedder.embed_batch = AsyncMock(return_value=[[0.0] * 768])
+
+    app = create_app(store=mock_store, embedder=mock_embedder, auto_index=False)
+    # Override graph state: enabled, but pointing at a socket that will never exist.
+    app.state.graph_enabled = True
+    app.state.graph_client = GraphClient(
+        socket_path="/tmp/guru-graph-nonexistent-e2e.sock",
+        auto_start=False,
+    )
+    context._degraded_client = TestClient(app)
 
 
 @when('I upsert Kb "{name}"')
@@ -156,12 +177,11 @@ def step_incompatible_protocol(context):
 
 @when("I query status")
 def step_query_status(context):
-    # Without a running guru-server, this scenario is a placeholder — the
-    # cross-package integration scenario is covered by unit tests against
-    # build_graph_client_if_enabled + graph_or_skip. Mark the context to
-    # assert defaults.
-    context.status_graph_enabled = True
-    context.status_graph_reachable = False
+    resp = context._degraded_client.get("/status")
+    assert resp.status_code == 200, f"unexpected status: {resp.status_code} {resp.text}"
+    data = resp.json()
+    context.status_graph_enabled = data["graph_enabled"]
+    context.status_graph_reachable = data["graph_reachable"]
 
 
 @then("status reports graph_enabled = {val:S}")
@@ -176,8 +196,9 @@ def step_status_graph_reachable(context, val):
 
 @then("the query endpoint still succeeds")
 def step_query_endpoint_succeeds(context):
-    # See step_query_status note: placeholder that passes trivially.
-    assert True
+    # Verify guru-server continues to serve requests even with graph unreachable.
+    resp = context._degraded_client.get("/status")
+    assert resp.status_code == 200, f"expected 200 from /status, got {resp.status_code}"
 
 
 @then('a Kb node "{name}" exists in the graph')

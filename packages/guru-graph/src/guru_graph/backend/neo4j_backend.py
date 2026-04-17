@@ -18,6 +18,35 @@ from .base import BackendHealth, BackendInfo, CypherResult, GraphBackendRegistry
 logger = logging.getLogger(__name__)
 
 
+class _Neo4jTx(Tx):
+    """Transaction handle backed by an open Neo4j driver transaction.
+
+    Overrides :meth:`execute` and :meth:`execute_read` to run queries on the
+    already-opened ``neo4j_tx`` instead of opening a new session, so
+    transactional semantics are actually honoured.
+    """
+
+    def __init__(self, *, neo4j_tx, read_only: bool = False) -> None:
+        # Pass a dummy backend — _Neo4jTx overrides execute/execute_read so the
+        # base class's backend dispatch is never reached.
+        super().__init__(backend=None, read_only=read_only)  # type: ignore[arg-type]
+        self._neo4j_tx = neo4j_tx
+
+    def execute(self, cypher: str, params: dict | None = None) -> CypherResult:
+        return self._run(cypher, params or {})
+
+    def execute_read(self, cypher: str, params: dict | None = None) -> CypherResult:
+        return self._run(cypher, params or {})
+
+    def _run(self, cypher: str, params: dict) -> CypherResult:
+        start = time.monotonic()
+        res = self._neo4j_tx.run(cypher, parameters=params)
+        columns = list(res.keys())
+        rows = [list(r.values()) for r in res]
+        elapsed_ms = (time.monotonic() - start) * 1000
+        return CypherResult(columns=columns, rows=rows, elapsed_ms=elapsed_ms)
+
+
 class Neo4jBackend:
     """Owns a Bolt driver pointed at Neo4j.
 
@@ -128,12 +157,13 @@ class Neo4jBackend:
     def transaction(self, *, read_only: bool = False) -> Iterator[Tx]:
         assert self._driver is not None
         with self._driver.session() as s:
-            tx = s.begin_transaction()
+            neo4j_tx = s.begin_transaction()
+            tx = _Neo4jTx(neo4j_tx=neo4j_tx, read_only=read_only)
             try:
-                yield Tx(backend=self, read_only=read_only)
-                tx.commit()
+                yield tx
+                neo4j_tx.commit()
             except Exception:
-                tx.rollback()
+                neo4j_tx.rollback()
                 raise
 
     # ---- Schema ----
