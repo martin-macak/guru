@@ -33,6 +33,29 @@ class VectorStore:
                     logger.debug("Table '%s' not found: %s", TABLE_NAME, exc)
                     return None
                 raise
+
+            # Validate table integrity — a corrupted table (e.g. missing data
+            # files after a failed indexing run) would fail on any read.
+            # count_rows() reads from metadata and succeeds even when data
+            # files are missing, so we only probe with head() when rows exist.
+            try:
+                if self._table.count_rows() > 0:
+                    self._table.head(1).to_pydict()
+            except Exception as exc:
+                logger.warning(
+                    "Table '%s' is corrupted and will be dropped: %s",
+                    TABLE_NAME,
+                    exc,
+                )
+                try:
+                    self.db.drop_table(TABLE_NAME)
+                except Exception:
+                    logger.warning(
+                        "Failed to drop corrupted table '%s'; ignoring",
+                        TABLE_NAME,
+                    )
+                self._table = None
+                return None
         return self._table
 
     def add_chunks(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:

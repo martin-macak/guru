@@ -1,3 +1,6 @@
+import glob
+import os
+
 import pytest
 
 from guru_server.ingestion.base import Chunk
@@ -140,3 +143,43 @@ def test_delete_files_prevents_duplicates(store, sample_chunks):
     store.add_chunks(sample_chunks[:2], fake_vectors[:2])
     # Still 3 total chunks (2 auth + 1 rbac)
     assert store.chunk_count() == 3
+
+
+def _corrupt_lance_table(db_path, table_name):
+    """Delete data files from a LanceDB table to simulate corruption."""
+    data_dir = os.path.join(db_path, f"{table_name}.lance", "data")
+    for f in glob.glob(os.path.join(data_dir, "*.lance")):
+        os.remove(f)
+
+
+def test_corrupted_table_is_detected_and_dropped(tmp_path, sample_chunks):
+    """A VectorStore with corrupted data files auto-recovers on first access."""
+    db_path = str(tmp_path / "db")
+    store = VectorStore(db_path=db_path)
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+    assert store.chunk_count() == 3
+
+    # Simulate corruption: remove data files, create fresh store instance
+    _corrupt_lance_table(db_path, "chunks")
+    store2 = VectorStore(db_path=db_path)
+
+    # Table should be detected as corrupted, dropped, and return empty results
+    assert store2.chunk_count() == 0
+    assert store2.search(query_vector=[0.1] * 768) == []
+
+    # Should be able to add new data after recovery
+    store2.add_chunks(sample_chunks[:1], fake_vectors[:1])
+    assert store2.chunk_count() == 1
+
+
+def test_healthy_table_is_not_dropped(tmp_path, sample_chunks):
+    """A valid VectorStore table is not affected by the corruption check."""
+    db_path = str(tmp_path / "db")
+    store = VectorStore(db_path=db_path)
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+
+    # Create a fresh instance — should find existing data intact
+    store2 = VectorStore(db_path=db_path)
+    assert store2.chunk_count() == 3
