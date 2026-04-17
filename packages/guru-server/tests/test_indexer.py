@@ -413,3 +413,57 @@ async def test_non_git_project_uses_pure_glob(project_dir, registry, indexer):
     await indexer.run(job)
 
     assert job.files_processed == 2
+
+
+@pytest.mark.asyncio
+async def test_store_manifest_consistency_recovery(project_dir, registry, embedder, config):
+    """If chunks store is empty but manifest has entries, manifest is cleared
+    and all files are re-indexed."""
+    db_path = str(project_dir / ".guru" / "db")
+    store = VectorStore(db_path=db_path)
+    db = lancedb.connect(db_path)
+    manifest = FileManifest(db)
+    embedder.embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 768] * len(texts))
+
+    indexer = BackgroundIndexer(
+        store=store,
+        manifest=manifest,
+        embedder=embedder,
+        config=config,
+        project_root=project_dir,
+    )
+
+    # First index — populates both store and manifest
+    job1 = registry.create_job()
+    await indexer.run(job1)
+    assert job1.status == "completed"
+    assert job1.files_processed == 2
+    assert store.chunk_count() > 0
+    assert len(manifest.all_entries()) == 2
+
+    # Simulate corrupted store: drop the chunks table directly,
+    # leaving manifest entries intact. Use a fresh store so the
+    # cached table reference is cleared.
+    store.db.drop_table("chunks")
+    store2 = VectorStore(db_path=db_path)
+    assert store2.chunk_count() == 0
+
+    # Reconnect manifest to verify it still has stale entries
+    db2 = lancedb.connect(db_path)
+    manifest2 = FileManifest(db2)
+    assert len(manifest2.all_entries()) == 2
+
+    indexer2 = BackgroundIndexer(
+        store=store2,
+        manifest=manifest2,
+        embedder=embedder,
+        config=config,
+        project_root=project_dir,
+    )
+
+    # Second index — should detect inconsistency, clear manifest, re-index all
+    job2 = registry.create_job()
+    await indexer2.run(job2)
+    assert job2.status == "completed"
+    assert job2.files_processed == 2  # All files re-indexed
+    assert store2.chunk_count() > 0

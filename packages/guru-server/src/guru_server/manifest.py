@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 
@@ -30,6 +31,29 @@ class FileManifest:
                 if any(phrase in msg for phrase in _TABLE_NOT_FOUND_PHRASES):
                     return None
                 raise
+
+            # Validate table integrity — a corrupted table (e.g. missing data
+            # files after a failed indexing run) would fail on any read.
+            # count_rows() reads from metadata and succeeds even when data
+            # files are missing, so we only probe with head() when rows exist.
+            try:
+                if self._table.count_rows() > 0:
+                    self._table.head(1).to_pydict()
+            except Exception as exc:
+                logger.warning(
+                    "Table '%s' is corrupted and will be dropped: %s",
+                    TABLE_NAME,
+                    exc,
+                )
+                try:
+                    self._db.drop_table(TABLE_NAME)
+                except Exception:
+                    logger.warning(
+                        "Failed to drop corrupted table '%s'; ignoring",
+                        TABLE_NAME,
+                    )
+                self._table = None
+                return None
         return self._table
 
     def _ensure_table(self):
@@ -120,6 +144,12 @@ class FileManifest:
             return
         escaped = ", ".join(f"'{_escape(fp)}'" for fp in file_paths)
         table.delete(f"file_path IN ({escaped})")
+
+    def reset(self) -> None:
+        """Drop the manifest table entirely to force a full re-index."""
+        with contextlib.suppress(Exception):
+            self._db.drop_table(TABLE_NAME)
+        self._table = None
 
 
 def _escape(value: str) -> str:

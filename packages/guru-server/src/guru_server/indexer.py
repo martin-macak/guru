@@ -70,6 +70,20 @@ class BackgroundIndexer:
         short_id = job.job_id[:8]
 
         try:
+            # Consistency check: if the chunks store is empty but the manifest
+            # has entries, the store was likely corrupted and rebuilt.  Clear
+            # the manifest so every file is treated as new and re-indexed.
+            if self._store.chunk_count() == 0:
+                entries = self._manifest.all_entries()
+                if entries:
+                    logger.warning(
+                        "[job %s] Store is empty but manifest has %d entries; "
+                        "clearing manifest to force full re-index",
+                        short_id,
+                        len(entries),
+                    )
+                    self._manifest.reset()
+
             # Phase 1: Discovery
             job.phase = "discovery"
             to_index, to_skip, to_delete = self._discover(job)
