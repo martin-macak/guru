@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .backend.base import GraphBackend
-from .routes import admin
+from .routes import admin, kbs
 from .versioning import (
     PROTOCOL_HEADER,
     PROTOCOL_VERSION,
@@ -48,4 +48,5 @@ def create_app(*, backend: GraphBackend) -> FastAPI:
         return response
 
     app.include_router(admin.router)
+    app.include_router(kbs.router)
     return app
