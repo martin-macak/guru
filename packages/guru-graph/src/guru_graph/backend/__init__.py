@@ -6,6 +6,7 @@ from .base import (
     GraphBackendRegistry,
     Tx,
 )
+from .neo4j_backend import Neo4jBackend
 
 __all__ = [
     "BackendHealth",
@@ -13,5 +14,6 @@ __all__ = [
     "CypherResult",
     "GraphBackend",
     "GraphBackendRegistry",
+    "Neo4jBackend",
     "Tx",
 ]
