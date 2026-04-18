@@ -35,6 +35,8 @@ dependencies = [
     "watchfiles>=1.0",
     "platformdirs>=4.0",
     "numpy>=1.26",
+    "tree-sitter>=0.22,<0.24",
+    "tree-sitter-python>=0.21,<0.24",
 ]
 
 [tool.uv-dynamic-versioning]
