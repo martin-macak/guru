@@ -10,7 +10,9 @@ from guru_core.discovery import GuruNotFoundError, find_guru_root
 from guru_core.graph_client import GraphClient
 from guru_core.graph_errors import GraphUnavailable
 from guru_core.graph_types import (
+    AnnotationCreate,
     AnnotationKind,
+    AnnotationNode,
     ArtifactLinkKind,
     CypherQuery,
     GraphEdgePayload,
@@ -21,8 +23,10 @@ from guru_core.graph_types import (
     KbNode,
     KbUpsert,
     LinkKind,
+    OrphanAnnotation,
     ParseResultPayload,
     QueryResult,
+    ReattachRequest,
     VersionInfo,
 )
 from guru_core.log import setup_logging
@@ -45,7 +49,9 @@ from guru_core.types import (
 
 __all__ = [
     "DEFAULT_RULES",
+    "AnnotationCreate",
     "AnnotationKind",
+    "AnnotationNode",
     "ArtifactLinkKind",
     "ChunkingConfig",
     "CypherQuery",
@@ -66,8 +72,10 @@ __all__ = [
     "KbUpsert",
     "LinkKind",
     "MatchConfig",
+    "OrphanAnnotation",
     "ParseResultPayload",
     "QueryResult",
+    "ReattachRequest",
     "Rule",
     "SearchRequest",
     "SearchResult",
