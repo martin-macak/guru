@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import os
+import threading
+import time
+import uuid
 from pathlib import Path
 
+import httpx
+import uvicorn
+
 from guru_core.types import GraphConfig, GuruConfig
+from guru_server.app import create_app
 from guru_server.config import load_config, resolve_config, resolve_web_config
-from guru_server.web_runtime import build_web_runtime
+from guru_server.web_runtime import bind_web_listener_sockets, build_web_runtime
 
 
 def test_resolve_web_config_defaults_when_config_has_no_web():
@@ -91,3 +99,58 @@ def test_existing_assets_allocate_localhost_port(tmp_path: Path):
     assert runtime.assets_dir == assets_dir
     assert runtime.reason is None
     assert runtime.auto_open is True
+
+
+def test_web_runtime_listener_serves_frontend_and_boot(tmp_path: Path):
+    assets_dir = tmp_path / "packages" / "guru-web" / "dist"
+    assets_dir.mkdir(parents=True)
+    (assets_dir / "index.html").write_text("<html><body>Guru Web</body></html>")
+
+    store = type("Store", (), {"chunk_count": lambda self: 0, "document_count": lambda self: 0})()
+    embedder = type("Embedder", (), {"check_health": lambda self: None})()
+    app = create_app(
+        store=store,
+        embedder=embedder,
+        config=GuruConfig(graph=GraphConfig(enabled=False)),
+        project_root=str(tmp_path),
+        auto_index=False,
+    )
+
+    runtime = app.state.web_runtime
+    assert runtime.available is True
+    assert runtime.port is not None
+    assert runtime.url is not None
+
+    uds_path = Path("/tmp") / f"guru-web-{os.getpid()}-{uuid.uuid4().hex}.sock"
+    sockets = bind_web_listener_sockets(uds_path=uds_path, port=runtime.port)
+    server = uvicorn.Server(uvicorn.Config(app, log_config=None, access_log=False))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": sockets}, daemon=True)
+    thread.start()
+
+    try:
+        deadline = time.monotonic() + 5
+        response = None
+        while time.monotonic() < deadline:
+            try:
+                response = httpx.get(runtime.url, timeout=0.5)
+                if response.status_code == 200:
+                    break
+            except Exception:
+                time.sleep(0.05)
+        assert response is not None
+        assert response.status_code == 200
+        assert "Guru Web" in response.text
+
+        boot = httpx.get(f"{runtime.url}/web/boot", timeout=1.0)
+        assert boot.status_code == 200
+        boot_data = boot.json()
+        assert boot_data["web"]["available"] is True
+        assert boot_data["web"]["url"] == runtime.url
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
+        for sock in sockets:
+            sock.close()
+        uds_path.unlink(missing_ok=True)
+
+    assert not thread.is_alive()

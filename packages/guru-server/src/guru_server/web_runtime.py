@@ -22,6 +22,25 @@ def _pick_free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def bind_web_listener_sockets(*, uds_path: Path, port: int) -> list[socket.socket]:
+    uds_path.parent.mkdir(parents=True, exist_ok=True)
+    uds_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        uds_socket.bind(str(uds_path))
+        uds_socket.listen(2048)
+
+        tcp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        tcp_socket.bind(("127.0.0.1", port))
+        tcp_socket.listen(2048)
+    except Exception:
+        uds_socket.close()
+        tcp_socket.close()
+        uds_path.unlink(missing_ok=True)
+        raise
+    return [uds_socket, tcp_socket]
+
+
 def build_web_runtime(
     *,
     project_root: Path,

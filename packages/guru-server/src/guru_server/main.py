@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import socket
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import uvicorn
@@ -23,6 +25,7 @@ from guru_server.startup import (
     stop_ollama_serve,
 )
 from guru_server.storage import VectorStore
+from guru_server.web_runtime import bind_web_listener_sockets
 
 logger = logging.getLogger(__name__)
 
@@ -127,17 +130,42 @@ def main(argv: list[str] | None = None):
 
         socket_path = str(guru_dir / "guru.sock")
         pid_path = guru_dir / "guru.pid"
+        sockets: list[socket.socket] | None = None
 
         pid_path.write_text(str(os.getpid()))
         logger.info("Listening on %s (PID %d)", socket_path, os.getpid())
 
         try:
-            uvicorn.run(
-                app,
-                uds=socket_path,
-                log_config=_uvicorn_log_config(),
-            )
+            if app.state.web_runtime.available and app.state.web_runtime.port is not None:
+                try:
+                    sockets = bind_web_listener_sockets(
+                        uds_path=Path(socket_path),
+                        port=app.state.web_runtime.port,
+                    )
+                except OSError:
+                    logger.exception("Failed to start web listener; continuing without it")
+                    app.state.web_runtime = replace(
+                        app.state.web_runtime,
+                        available=False,
+                        url=None,
+                        port=None,
+                        assets_dir=None,
+                        reason="listen_failed",
+                    )
+
+            if sockets is None:
+                uvicorn.run(
+                    app,
+                    uds=socket_path,
+                    log_config=_uvicorn_log_config(),
+                )
+            else:
+                server = uvicorn.Server(uvicorn.Config(app, log_config=_uvicorn_log_config()))
+                server.run(sockets=sockets)
         finally:
+            if sockets is not None:
+                for sock in sockets:
+                    sock.close()
             if fed_registry is not None:
                 fed_registry.deregister()
             pid_path.unlink(missing_ok=True)
