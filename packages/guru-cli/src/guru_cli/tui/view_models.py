@@ -20,3 +20,18 @@ class StatusSnapshotVM:
     chunk_count: int
     graph_enabled: bool
     graph_reachable: bool
+
+
+@dataclass(frozen=True)
+class KnowledgeTreeItemVM:
+    node_id: str
+    label: str
+    kind: str
+    parent_id: str | None = None
+
+
+@dataclass(frozen=True)
+class DocumentDetailVM:
+    file_path: str
+    content: str
+    labels: list[str] = field(default_factory=list)

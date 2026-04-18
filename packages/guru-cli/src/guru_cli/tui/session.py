@@ -4,7 +4,12 @@ from guru_core.client import GuruClient
 from guru_core.graph_client import GraphClient
 from guru_core.types import SearchResultOut, StatusResponse
 
-from .view_models import SearchHitVM, StatusSnapshotVM
+from .view_models import (
+    DocumentDetailVM,
+    KnowledgeTreeItemVM,
+    SearchHitVM,
+    StatusSnapshotVM,
+)
 
 
 class GuruSession:
@@ -36,3 +41,22 @@ class GuruSession:
             for raw_hit in raw_hits
             for typed_hit in [SearchResultOut.model_validate(raw_hit)]
         ]
+
+    async def load_documents(self) -> list[KnowledgeTreeItemVM]:
+        raw_docs = await self._guru.list_documents()
+        return [
+            KnowledgeTreeItemVM(
+                node_id=doc["file_path"],
+                label=doc["file_path"],
+                kind="document",
+            )
+            for doc in raw_docs
+        ]
+
+    async def load_document(self, file_path: str) -> DocumentDetailVM:
+        raw = await self._guru.get_document(file_path)
+        return DocumentDetailVM(
+            file_path=raw["file_path"],
+            content=raw["content"],
+            labels=list(raw.get("labels", [])),
+        )
