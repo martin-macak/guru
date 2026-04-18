@@ -336,3 +336,42 @@ def links(name: str, direction: str, as_json: bool, no_truncate: bool) -> None:
         )
     else:
         click.echo(_render_links_table(items, truncate=not no_truncate))
+
+
+@graph_group.command(name="query")
+@click.argument("cypher", required=False)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the QueryResult as JSON.",
+)
+def query(cypher: str | None, as_json: bool) -> None:
+    """Run a read-only Cypher query.
+
+    The query is forced to read-only on the server — no write flag is
+    exposed by the CLI regardless of the Cypher contents.
+
+    Pass the query inline or via stdin:
+
+        guru graph query 'MATCH (k:Kb) RETURN k.name'
+        echo 'MATCH (k:Kb) RETURN count(k)' | guru graph query
+        guru graph query < query.cypher
+    """
+    if cypher is None:
+        if sys.stdin.isatty():
+            click.echo("cypher required (pass as argument or via stdin)")
+            raise SystemExit(2)
+        cypher = sys.stdin.read()
+        if not cypher or not cypher.strip():
+            click.echo("cypher required (pass as argument or via stdin)")
+            raise SystemExit(2)
+    client = _client()
+    result = _handle_graph_errors(
+        client.query(cypher=cypher, params=None, read_only=True),
+    )
+    if as_json:
+        click.echo(_json.dumps(result.model_dump(mode="json"), indent=2, default=str))
+    else:
+        click.echo(_render_query_result(result))

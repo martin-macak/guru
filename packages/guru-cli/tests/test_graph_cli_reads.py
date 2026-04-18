@@ -294,3 +294,76 @@ def test_links_invalid_direction_rejected(runner, mock_client):
     result = runner.invoke(graph_group, ["links", "alpha", "--direction", "sideways"])
     assert result.exit_code != 0
     mock_client.list_links.assert_not_awaited()
+
+
+# ---- Task 6: guru graph query ----
+
+
+def test_query_positional_arg(runner, mock_client):
+    mock_client.query = AsyncMock(
+        return_value=QueryResult(columns=["n"], rows=[[1]], elapsed_ms=0.5)
+    )
+    result = runner.invoke(graph_group, ["query", "MATCH (n) RETURN n"])
+    assert result.exit_code == 0, result.output
+    mock_client.query.assert_awaited_once()
+    _, kwargs = mock_client.query.call_args
+    # Safety: read_only is hard-coded True.
+    assert kwargs["read_only"] is True
+    assert kwargs["cypher"] == "MATCH (n) RETURN n"
+
+
+def test_query_read_only_cannot_be_overridden(runner, mock_client):
+    """Help output must not expose a --write flag."""
+    result = runner.invoke(graph_group, ["query", "--help"])
+    assert result.exit_code == 0
+    assert "--write" not in result.output
+    assert "read-only" in result.output.lower() or "read only" in result.output.lower()
+
+
+def test_query_stdin(runner, mock_client):
+    mock_client.query = AsyncMock(
+        return_value=QueryResult(columns=["x"], rows=[[1]], elapsed_ms=0.1)
+    )
+    result = runner.invoke(graph_group, ["query"], input="RETURN 1 AS x\n")
+    assert result.exit_code == 0, result.output
+    _, kwargs = mock_client.query.call_args
+    assert kwargs["cypher"].strip() == "RETURN 1 AS x"
+    assert kwargs["read_only"] is True
+
+
+def test_query_json_output(runner, mock_client):
+    mock_client.query = AsyncMock(
+        return_value=QueryResult(
+            columns=["k.name"],
+            rows=[["alpha"]],
+            elapsed_ms=1.0,
+        )
+    )
+    result = runner.invoke(graph_group, ["query", "--json", "MATCH (k) RETURN k.name"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data["columns"] == ["k.name"]
+    assert data["rows"] == [["alpha"]]
+
+
+def test_query_server_error_renders_detail(runner, mock_client):
+    mock_client.query = AsyncMock(
+        side_effect=GraphUnavailable(
+            'daemon error 500: {"error":"query_failed","detail":"Invalid input","type":"CypherSyntaxError"}'
+        )
+    )
+    result = runner.invoke(graph_group, ["query", "bogus"])
+    assert result.exit_code == 1
+    assert "daemon: unreachable" in result.output or "Invalid input" in result.output
+
+
+def test_query_no_positional_and_tty_stdin_exits_2(runner, mock_client):
+    mock_client.query = AsyncMock()
+    # Simulate TTY stdin. CliRunner normally redirects stdin, so we patch the
+    # graph module's sys.stdin directly.
+    with patch("guru_cli.commands.graph.sys.stdin") as stdin:
+        stdin.isatty.return_value = True
+        result = runner.invoke(graph_group, ["query"])
+    assert result.exit_code == 2
+    assert "cypher required" in result.output.lower() or "no cypher" in result.output.lower()
+    mock_client.query.assert_not_awaited()
