@@ -84,10 +84,14 @@ def test_local_name_overrides_global_name(tmp_path: Path):
     assert cfg.name == "local"
 
 
-def test_merge_with_no_graph_in_either_leaves_graph_none(tmp_path: Path):
+def test_merge_with_no_graph_in_either_keeps_default_enabled(tmp_path: Path):
+    """Both configs silent on graph → Pydantic's default (enabled=True)
+    kicks in when each config is loaded, and the merge preserves that.
+    """
     global_dir = tmp_path / "global"
     project = tmp_path / "proj"
     _write_config(global_dir / "config.json", {"version": 1, "rules": []})
     _write_config(project / ".guru.json", {"version": 1, "rules": []})
     cfg = resolve_config(project_root=project, global_config_dir=global_dir)
-    assert cfg.graph is None
+    assert cfg.graph is not None
+    assert cfg.graph.enabled is True

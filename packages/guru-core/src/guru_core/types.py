@@ -26,9 +26,14 @@ class Rule(BaseModel):
 
 
 class GraphConfig(BaseModel):
-    """Optional graph plugin configuration."""
+    """Optional graph plugin configuration.
 
-    enabled: bool = False
+    Enabled by default; opt-out by setting ``enabled: false``. Graph failures
+    always degrade silently in guru-server, so there's no downside to having
+    the default be "on, tries the daemon, falls back when unavailable".
+    """
+
+    enabled: bool = True
 
 
 class GuruConfig(BaseModel):
@@ -38,7 +43,7 @@ class GuruConfig(BaseModel):
     name: str | None = None
     version: int = 1
     rules: list[Rule] = Field(default_factory=list)
-    graph: GraphConfig | None = None
+    graph: GraphConfig | None = Field(default_factory=GraphConfig)
 
 
 class SearchRequest(BaseModel):
