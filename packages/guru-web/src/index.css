@@ -1,0 +1,124 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #0f172a;
+  background:
+    radial-gradient(circle at top, rgba(15, 118, 110, 0.14), transparent 40%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.app-card {
+  width: min(100%, 42rem);
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 1.5rem;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
+  backdrop-filter: blur(18px);
+  padding: clamp(1.5rem, 4vw, 3rem);
+}
+
+.app-eyebrow {
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #0f766e;
+}
+
+.app-title {
+  margin: 0;
+  font-size: clamp(2.4rem, 8vw, 4.5rem);
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.app-copy {
+  margin: 1rem 0 0;
+  max-width: 36rem;
+  font-size: 1.0625rem;
+  color: #334155;
+}
+
+.guru-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 0.75rem 1rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    transform 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.guru-button:hover {
+  transform: translateY(-1px);
+}
+
+.guru-button:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+.guru-button--default {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.guru-button--default:hover {
+  background: #1e293b;
+}
+
+.guru-button--outline {
+  border-color: rgba(148, 163, 184, 0.7);
+  background: rgba(255, 255, 255, 0.8);
+  color: #0f172a;
+}
+
+.guru-button--outline:hover {
+  border-color: rgba(71, 85, 105, 0.7);
+  background: rgba(255, 255, 255, 0.95);
+}
