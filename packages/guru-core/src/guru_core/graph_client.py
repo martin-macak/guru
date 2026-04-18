@@ -219,7 +219,7 @@ class GraphClient:
         """
         resp = await self._request(
             "POST",
-            f"/ingest/parse-result?kb_name={quote(kb_name)}",
+            f"/ingest/parse-result?kb_name={quote(kb_name, safe='')}",
             json=payload.model_dump(mode="json"),
         )
         if resp.status_code != 204:
@@ -235,7 +235,7 @@ class GraphClient:
         """
         resp = await self._request(
             "DELETE",
-            f"/ingest/documents/{quote(doc_id, safe='')}?kb_name={quote(kb_name)}",
+            f"/ingest/documents/{quote(doc_id, safe='')}?kb_name={quote(kb_name, safe='')}",
         )
         if resp.status_code != 204:
             raise GraphUnavailable(
