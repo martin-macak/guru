@@ -53,6 +53,7 @@ class BackgroundIndexer:
         embedder,
         config: GuruConfig,
         project_root: Path,
+        kb_name: str,
         embed_cache: EmbeddingCache | None = None,
     ) -> None:
         self._store = store
@@ -62,6 +63,7 @@ class BackgroundIndexer:
         self._project_root = Path(project_root).resolve()
         self._parser = MarkdownParser()
         self._cache = embed_cache
+        self._kb_name = kb_name
 
     async def run(self, job: Job) -> None:
         """Execute a two-phase indexing job."""
@@ -221,7 +223,10 @@ class BackgroundIndexer:
         content_hash = _file_hash(file_path)
         current_mtime = file_path.stat().st_mtime
 
-        chunks = self._parser.parse(file_path, rule)
+        parse_result = self._parser.parse(file_path, rule, kb_name=self._kb_name)
+        chunks = parse_result.chunks
+        # parse_result.document/nodes/edges are captured but discarded in PR-1 —
+        # PR-2 wires them into graph ingestion via graph_or_skip.
         for chunk in chunks:
             chunk.file_path = rel_path
 

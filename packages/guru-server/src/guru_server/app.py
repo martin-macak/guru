@@ -149,6 +149,10 @@ def create_app(
     else:
         app.state.manifest = None
 
+    app.state.project_name = (
+        project_name or app.state.config.name or Path(app.state.project_root).name
+    )
+
     # Create indexer if we have all dependencies
     if store is not None and embedder is not None and app.state.manifest is not None:
         app.state.indexer = BackgroundIndexer(
@@ -157,6 +161,7 @@ def create_app(
             embedder=embedder,
             config=app.state.config,
             project_root=Path(app.state.project_root),
+            kb_name=app.state.project_name,
             embed_cache=embed_cache,
         )
     else:
@@ -165,9 +170,6 @@ def create_app(
     graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
     app.state.graph_enabled = graph_enabled
     app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
-    app.state.project_name = (
-        project_name or app.state.config.name or Path(app.state.project_root).name
-    )
 
     app.include_router(api_router)
     return app

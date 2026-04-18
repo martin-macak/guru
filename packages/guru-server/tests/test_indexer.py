@@ -64,6 +64,7 @@ def indexer(store, manifest, embedder, config, project_dir, registry):
         embedder=embedder,
         config=config,
         project_root=project_dir,
+        kb_name="test",
     )
 
 
@@ -187,6 +188,7 @@ def indexer_with_cache(store, manifest, embedder, config, project_dir, embed_cac
         embedder=embedder,
         config=config,
         project_root=project_dir,
+        kb_name="test",
         embed_cache=embed_cache,
     )
 
@@ -225,7 +227,7 @@ async def test_cache_hit_skips_embedder(
     parser = MarkdownParser()
     rule = Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))
     for md in (project_dir / "docs").glob("*.md"):
-        chunks = parser.parse(md, rule)
+        chunks = parser.parse(md, rule, kb_name="test").chunks
         for chunk in chunks:
             key = (hashlib.sha256(chunk.content.encode("utf-8")).digest(), "nomic-embed-text")
             embed_cache.put_many([(key, np.array([0.1] * 768, dtype=np.float32))])
@@ -303,7 +305,7 @@ async def test_cache_mixed_hit_miss_preserves_order(
     rule = Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))
     hit_vector = np.array([0.42] * 768, dtype=np.float32)
     all_md_files = sorted((project_dir / "docs").glob("*.md"))
-    first_file_chunks = parser.parse(all_md_files[0], rule)
+    first_file_chunks = parser.parse(all_md_files[0], rule, kb_name="test").chunks
     assert first_file_chunks, "Test fixture must produce at least one chunk"
     first_chunk_text = first_file_chunks[0].content
     key = (hashlib.sha256(first_chunk_text.encode("utf-8")).digest(), "nomic-embed-text")
@@ -390,6 +392,7 @@ async def test_gitignore_filter_skips_ignored_files(git_project, registry):
         embedder=embedder,
         config=config,
         project_root=git_project,
+        kb_name="test",
         embed_cache=None,
     )
 
@@ -431,6 +434,7 @@ async def test_store_manifest_consistency_recovery(project_dir, registry, embedd
         embedder=embedder,
         config=config,
         project_root=project_dir,
+        kb_name="test",
     )
 
     # First index — populates both store and manifest
@@ -459,6 +463,7 @@ async def test_store_manifest_consistency_recovery(project_dir, registry, embedd
         embedder=embedder,
         config=config,
         project_root=project_dir,
+        kb_name="test",
     )
 
     # Second index — should detect inconsistency, clear manifest, re-index all
