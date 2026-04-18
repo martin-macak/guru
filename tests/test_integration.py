@@ -102,6 +102,10 @@ def mock_embedder():
 @pytest.fixture
 def client(project, mock_embedder):
     config = resolve_config(project_root=project)
+    # Disable graph so indexing doesn't try to auto-start a guru-graph daemon
+    # (which would block on connect_or_spawn for the full ready timeout when
+    # no daemon is reachable, slowing the test past its deadline).
+    config.graph = None
     store = VectorStore(db_path=str(project / ".guru" / "db"))
     app = create_app(
         store=store,
