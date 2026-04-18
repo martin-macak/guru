@@ -1,6 +1,10 @@
 # Guru
 
-A local-first knowledge-base manager that indexes markdown documents in a git repo and serves them to AI agents via RAG over MCP. Runs entirely on your machine with no cloud dependencies.
+A local-first knowledge-base manager that indexes Markdown, Python, and OpenAPI files in a git repo and serves them to AI agents via RAG over MCP. Runs entirely on your machine with no cloud dependencies.
+
+Two storage layers, both local:
+- **LanceDB vector index** (always on) — semantic search across doc-chunks and code-chunks.
+- **Neo4j-backed structural graph** (optional, opt-out) — `(:Document)`, `(:Module)`, `(:Class)`, `(:Function)`, `(:Method)`, `(:OpenApiOperation)`, `(:OpenApiSchema)` nodes plus parser-emitted `imports` / `inherits_from` edges and agent-written annotations + typed links. Lets agents pivot from a vector hit into structured neighbourhood traversal.
 
 ## Prerequisites
 
@@ -19,13 +23,15 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull nomic-embed-text
 ```
 
+**Optional (for the graph plugin):** Java 21+ on the `PATH` so `guru-graph` can spawn a Neo4j Community subprocess. The graph is enabled by default; it gracefully degrades when Java isn't available, so you can install it later. To opt out completely, set `graph.enabled: false` in your `.guru.json`.
+
 ## Install
 
 ```bash
 uv tool install guru --extra-index-url https://martin-macak.github.io/guru/simple/
 ```
 
-This installs the `guru`, `guru-server`, and `guru-mcp` commands.
+This installs the `guru`, `guru-server`, `guru-mcp`, and `guru-graph` commands.
 
 ## Quick start
 
@@ -45,20 +51,41 @@ guru search "authentication flow"
 - `.guru/` — runtime directory (gitignored automatically)
 - `.guru.json` — indexing rules (version-controlled; edit this file to configure indexing)
 - `.mcp.json` — MCP server configuration for AI agents
+- `.claude/skills/guru-knowledge-base/` — agent skill that teaches Claude (and other AGENTS.md-compatible clients) how to discover, annotate, and curate the KB
+- `.agents/skills/guru-knowledge-base` — symlink mirror of the skill for tooling that reads `.agents/`
 
 Configuration precedence: `./.guru.json` > `./guru.json` (legacy) > `./.guru/config.json` > `~/.config/guru/config.json`
 
+Refresh the agent skill after a `guru` upgrade with `guru update` (use `--dry-run` first; `--force` overwrites user-customised files after backing them up).
+
+Full usage manual — what gets indexed, hybrid search, the graph plugin, curating annotations and links, federation, FAQ, troubleshooting: [USAGE.md](USAGE.md).
+
 ## MCP integration
 
-After `guru init`, your `.mcp.json` is configured automatically. AI agents that support MCP (Claude Code, Cursor, Continue.dev) will discover the guru tools:
+After `guru init`, your `.mcp.json` is configured automatically. AI agents that support MCP (Claude Code, Cursor, Continue.dev) will discover the guru tools.
 
-- `search` — semantic search across your knowledge base
+**Search & retrieval** (always on, vector-only):
+- `search` — semantic search across your knowledge base (returns both doc-chunks and code-chunks)
 - `get_document` — retrieve a full document
 - `list_documents` — browse all indexed documents
 - `get_section` — retrieve a specific markdown section
 - `index_status` — check index health and stats
+- `federated_search` / `list_peers` / `clone_codebase` / `unmount_codebase` — cross-project federation when multiple guru projects share a federation directory
 
-The guru server starts automatically when an MCP tool is first invoked.
+**Graph navigation** (read-only; degrade silently to `{"status":"graph_disabled"}` when graph is off):
+- `graph_describe` — fetch a node with its annotations and direct links
+- `graph_neighbors` — walk neighbours by direction / rel_type / kind / depth
+- `graph_find` — find artifacts by name, qualname prefix, label, tag, or KB
+- `graph_orphans` — list annotations whose target was deleted
+- `graph_query` — read-only Cypher (writes are rejected at the proxy)
+
+**Graph curation** (the only agent-write surface):
+- `graph_annotate` — add a `summary`, `gotcha`, `caveat`, or `note` (summary replaces; others append)
+- `graph_delete_annotation` — remove an annotation by id
+- `graph_link` / `graph_unlink` — typed `imports` / `inherits_from` / `implements` / `calls` / `references` / `documents` edges between artifacts
+- `graph_reattach_orphan` — re-bind an orphaned annotation to its renamed target
+
+The guru server starts automatically when an MCP tool is first invoked. The graph daemon (`guru-graph`) auto-spawns lazily on first graph call.
 
 ### Configuring `.mcp.json` manually
 
@@ -131,7 +158,8 @@ Config resolution: `./.guru.json` > `./guru.json` (legacy) > `./.guru/config.jso
 ## CLI commands
 
 ```
-guru init                # set up guru in current directory
+guru init                # set up guru in current directory (installs the agent skill)
+guru update              # refresh the agent skill (--force / --dry-run)
 guru index [PATH]        # index documents
 guru search "query"      # semantic search
 guru doc <path>          # get full document
@@ -139,7 +167,21 @@ guru doc <path> -s "H"   # get specific section
 guru list                # list indexed documents
 guru config              # show resolved config
 guru server start|stop|status
+
+# Graph plugin (optional; opt out via graph.enabled=false in .guru.json)
+guru graph start|stop|status              # control the daemon
+guru graph kbs                            # list KBs in the graph
+guru graph kb <name>                      # show one KB
+guru graph links <name>                   # list a KB's cross-KB links
+guru graph describe <node-id>             # show artifact + annotations + links
+guru graph neighbors <node-id>            # walk neighbours
+guru graph find --name X --label Class    # search artifacts by filter
+guru graph annotations <node-id>          # list annotations on one node
+guru graph orphans                        # list orphaned annotations
+guru graph query 'MATCH (n) RETURN n'     # read-only Cypher (writes blocked)
 ```
+
+`guru graph` is **deliberately read-only**. Graph mutations (annotations, link create/delete, orphan re-attach) are only available through MCP — agents are the writers; the CLI is for inspection.
 
 ## Upgrade
 
@@ -165,6 +207,15 @@ uv tool uninstall guru
 
 **Server won't stop**
 - Run `guru server stop` or check `.guru/guru.pid` for the process ID
+
+**Graph daemon "not reachable"**
+- Run `guru graph status` to check daemon + Neo4j health
+- The daemon is lazy-spawned on first graph call; `guru graph start` forces it now
+- Java 21+ must be on PATH for the daemon to spawn Neo4j (subprocess mode)
+- For an externally-managed Neo4j (e.g. Docker), set `GURU_NEO4J_BOLT_URI` and the daemon connects to it instead of spawning
+
+**Graph commands say "graph is disabled"**
+- The graph is opted out in your config. Set `graph.enabled: true` in `.guru.json` (it's the default; absence means enabled)
 
 ## Contributing
 
