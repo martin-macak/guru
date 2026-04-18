@@ -111,30 +111,6 @@ class QueryResult(BaseModel):
     elapsed_ms: float
 
 
-class ArtifactNode(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    id: str
-    label: str
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class ArtifactNeighborsResult(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    node_id: str
-    nodes: list[ArtifactNode] = Field(default_factory=list)
-    edges: list[GraphEdgePayload] = Field(default_factory=list)
-
-
-class ArtifactFindQuery(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    name: str | None = None
-    qualname_prefix: str | None = None
-    label: str | None = None
-    tag: str | None = None
-    kb_name: str | None = None
-    limit: int = 50
-
-
 class Health(BaseModel):
     status: Literal["healthy", "degraded", "unhealthy"]
     graph_reachable: bool
