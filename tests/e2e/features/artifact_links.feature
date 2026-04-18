@@ -10,10 +10,11 @@ Feature: Parser-emitted and agent-written artifact RELATES links
     Given fixture "polyglot" is indexed
     Then edges of kind "imports" and "inherits_from" are present per the parser rules
 
-  @skip_until_pr7 @skip_until_pr8 @real_neo4j
+  @real_neo4j
   Scenario: Agent manually links a class to its OpenAPI contract
-    When agent calls graph_link with from_id "polyglot::pkg.services.user.UserService" to_id "polyglot::api/openapi.yaml::UserResource" kind "implements"
-    Then the edge exists with author "agent:claude-code"
+    Given the polyglot fixture has a Python class and an OpenAPI schema indexed with graph enabled
+    When agent calls graph_link with from_id "polyglot::pkg.services.user.UserService" to_id "polyglot::api/openapi.yaml::components/schemas/UserResource" kind "implements"
+    Then the edge exists with author "agent:test"
     When agent calls graph_unlink with the same triple and kind "implements"
     Then the edge is gone
 
