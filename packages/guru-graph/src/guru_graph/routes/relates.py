@@ -1,4 +1,8 @@
-"""Routes for artifact RELATES edges."""
+"""Routes for artifact RELATES edges.
+
+POST   /relates                           create (returns ArtifactLink)
+DELETE /relates                           delete (204 / 404)
+"""
 
 from __future__ import annotations
 
