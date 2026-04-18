@@ -20,7 +20,11 @@ help:
 	@echo "  test-e2e           BDD e2e tests (serial)"
 	@echo "  test-e2e-parallel  BDD e2e tests (parallel, one process per feature)"
 	@echo "  test-all           All tests: unit + integration + e2e"
-	@echo "  test-graph         Graph plugin tests including @real_neo4j (requires Neo4j)"
+	@echo "  test-graph         CI path: pytest + graph_plugin.feature against external Neo4j"
+	@echo "                     (honors GURU_REAL_NEO4J/GURU_NEO4J_BOLT_URI)"
+	@echo ""
+	@echo "  CAPABILITIES=neo4j make test-e2e  # local: ephemeral Neo4j via Docker"
+	@echo "  CAPABILITIES=all make test-e2e    # every registered capability"
 	@echo ""
 	@echo "Build"
 	@echo "  build              Build all 5 wheels into dist/"
@@ -50,9 +54,17 @@ test-unit:
 test-integration:
 	uv run pytest tests/ -v --tb=short
 
+# CAPABILITIES selects external-service capabilities for the run.
+#   make test-e2e                     # no capabilities; @real_* scenarios skip
+#   make test-e2e CAPABILITIES=neo4j  # ephemeral Neo4j 5 container
+#   make test-e2e CAPABILITIES=all    # every registered capability
+# Behave owns lifecycle via before_all/after_all hooks — no shell glue here.
+# See tests/e2e/features/capabilities.py for the registry.
+CAPABILITIES ?=
+
 .PHONY: test-e2e
 test-e2e:
-	uv run behave tests/e2e/features/
+	uv run behave tests/e2e/features/ -D capabilities=$(CAPABILITIES)
 
 .PHONY: test-e2e-parallel
 test-e2e-parallel:
@@ -64,10 +76,15 @@ test: test-unit test-integration
 .PHONY: test-all
 test-all: test-unit test-integration test-e2e
 
+# CI-targeted: pytest + BDD against an externally-provided Neo4j (service
+# container). Honors GURU_REAL_NEO4J / GURU_NEO4J_BOLT_URI from the environment.
+# The behave call also carries -D capabilities=neo4j so the capability registry
+# recognizes the active service and runs per-feature Neo4j wipes.
 .PHONY: test-graph
 test-graph:
 	GURU_REAL_NEO4J=1 uv run pytest packages/guru-graph/ -v --tb=short
-	GURU_REAL_NEO4J=1 uv run behave tests/e2e/features/graph_plugin.feature
+	GURU_REAL_NEO4J=1 uv run behave tests/e2e/features/graph_plugin.feature \
+		-D capabilities=neo4j
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 

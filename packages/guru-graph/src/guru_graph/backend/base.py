@@ -200,6 +200,16 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
 
     def delete_annotation(self, *, annotation_id: str) -> bool: ...
 
+    def get_annotation(self, *, annotation_id: str) -> dict[str, Any] | None:
+        """Return the annotation row by id, or None if not present.
+
+        Row shape matches the other annotation-returning methods:
+        `{annotation_id, target_id, target_label, kind, body, tags, author,
+        created_at, updated_at, target_snapshot_json}`. `target_id` and
+        `target_label` are None for orphaned annotations.
+        """
+        ...
+
     def list_orphans(self, *, limit: int) -> list[dict[str, Any]]: ...
 
     def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool: ...

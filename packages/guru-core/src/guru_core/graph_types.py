@@ -204,3 +204,53 @@ class ParseResultPayload(BaseModel):
     document: GraphNodePayload
     nodes: list[GraphNodePayload] = Field(default_factory=list)
     edges: list[GraphEdgePayload] = Field(default_factory=list)
+
+
+# --- Annotation types ---
+
+
+class AnnotationCreate(BaseModel):
+    """Request body for POST /annotations."""
+
+    model_config = ConfigDict(extra="forbid")
+    node_id: str
+    kind: AnnotationKind
+    body: str = Field(min_length=1)
+    tags: list[str] = Field(default_factory=list)
+
+
+class AnnotationNode(BaseModel):
+    """Wire representation of an annotation returned by the graph daemon."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    target_id: str | None
+    target_label: str | None
+    kind: AnnotationKind
+    body: str
+    tags: list[str]
+    author: str
+    created_at: datetime
+    updated_at: datetime
+    target_snapshot_json: str
+
+
+class OrphanAnnotation(BaseModel):
+    """An annotation whose target node no longer exists in the graph."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    kind: AnnotationKind
+    body: str
+    tags: list[str]
+    author: str
+    created_at: datetime
+    updated_at: datetime
+    target_snapshot_json: str
+
+
+class ReattachRequest(BaseModel):
+    """Request body for POST /annotations/{id}/reattach."""
+
+    model_config = ConfigDict(extra="forbid")
+    new_node_id: str

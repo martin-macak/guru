@@ -20,6 +20,8 @@ import httpx
 
 from .graph_errors import GraphUnavailable
 from .graph_types import (
+    AnnotationCreate,
+    AnnotationNode,
     CypherQuery,
     Health,
     KbLink,
@@ -27,8 +29,10 @@ from .graph_types import (
     KbNode,
     KbUpsert,
     LinkKind,
+    OrphanAnnotation,
     ParseResultPayload,
     QueryResult,
+    ReattachRequest,
     VersionInfo,
 )
 
@@ -101,11 +105,15 @@ class GraphClient:
         path: str,
         *,
         json: dict | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         try:
             await self._ensure_daemon()
         except Exception as e:
             raise GraphUnavailable(f"autostart failed: {e}") from e
+        merged_headers = self._headers()
+        if headers:
+            merged_headers.update(headers)
         try:
             async with httpx.AsyncClient(
                 transport=self._transport(),
@@ -114,7 +122,7 @@ class GraphClient:
                 resp = await client.request(
                     method,
                     f"http://localhost{path}",
-                    headers=self._headers(),
+                    headers=merged_headers,
                     json=json,
                 )
         except httpx.HTTPError as e:
@@ -241,6 +249,59 @@ class GraphClient:
             raise GraphUnavailable(
                 f"unexpected status from /ingest/documents/{doc_id}: {resp.status_code}"
             )
+
+    async def create_annotation(self, req: AnnotationCreate, *, author: str) -> AnnotationNode:
+        """Create an annotation. Returns the resulting AnnotationNode.
+
+        SUMMARY kind replaces the existing summary for the target (idempotent);
+        other kinds append. Raises :class:`GraphUnavailable` on transport or
+        daemon errors, including 404 when the target doesn't exist.
+        """
+        resp = await self._request(
+            "POST",
+            "/annotations",
+            json=req.model_dump(mode="json"),
+            headers={"X-Guru-Author": author},
+        )
+        if resp.status_code != 201:
+            raise GraphUnavailable(f"unexpected status from POST /annotations: {resp.status_code}")
+        return AnnotationNode.model_validate(resp.json())
+
+    async def delete_annotation(self, *, annotation_id: str) -> bool:
+        """Delete an annotation by id. Returns True on success, False if not found."""
+        resp = await self._request(
+            "DELETE",
+            f"/annotations/{quote(annotation_id, safe='')}",
+        )
+        if resp.status_code == 204:
+            return True
+        if resp.status_code == 404:
+            return False
+        raise GraphUnavailable(
+            f"unexpected status from DELETE /annotations/{annotation_id}: {resp.status_code}"
+        )
+
+    async def list_orphans(self, *, limit: int = 50) -> list[OrphanAnnotation]:
+        """List orphaned annotations (those whose target node was deleted)."""
+        resp = await self._request("GET", f"/annotations/orphans?limit={limit}")
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from GET /annotations/orphans: {resp.status_code}"
+            )
+        return [OrphanAnnotation.model_validate(r) for r in resp.json()]
+
+    async def reattach_orphan(self, *, annotation_id: str, new_node_id: str) -> AnnotationNode:
+        """Reattach an orphaned annotation to a new target node."""
+        resp = await self._request(
+            "POST",
+            f"/annotations/{quote(annotation_id, safe='')}/reattach",
+            json=ReattachRequest(new_node_id=new_node_id).model_dump(mode="json"),
+        )
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from POST /annotations/{annotation_id}/reattach: {resp.status_code}"
+            )
+        return AnnotationNode.model_validate(resp.json())
 
     async def query(
         self,

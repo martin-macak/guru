@@ -537,6 +537,12 @@ class FakeBackend:
         del self._annotations[annotation_id]
         return True
 
+    def get_annotation(self, *, annotation_id: str) -> dict[str, Any] | None:
+        ann = self._annotations.get(annotation_id)
+        if ann is None:
+            return None
+        return _annotation_to_dict(ann)
+
     def list_orphans(self, *, limit: int) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for ann in self._annotations.values():
