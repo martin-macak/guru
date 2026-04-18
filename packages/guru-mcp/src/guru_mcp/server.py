@@ -294,8 +294,11 @@ async def graph_find(
     tag: str | None = None,
     kb_name: str | None = None,
     limit: int = 50,
-) -> dict:
+) -> list | dict:
     """Search artifacts by name, qualname prefix, label, tag, or KB name.
+
+    Returns a list of ArtifactNode dicts, or a ``{"status":"graph_disabled"}``
+    sentinel dict when the graph daemon isn't reachable.
 
     Only non-None arguments are forwarded to the server, so omitting a
     filter doesn't constrain the search.
@@ -412,8 +415,11 @@ async def graph_unlink(
 
 
 @mcp.tool()
-async def graph_orphans(limit: int = 50) -> dict:
+async def graph_orphans(limit: int = 50) -> list | dict:
     """List orphaned annotations whose target node was deleted.
+
+    Returns a list of OrphanAnnotation dicts, or a ``{"status":"graph_disabled"}``
+    sentinel dict when the graph daemon isn't reachable.
 
     Args:
         limit: Max results (default 50).

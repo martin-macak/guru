@@ -35,6 +35,24 @@ def test_all_10_graph_tools_registered():
     assert not missing, f"missing graph tools: {missing}"
 
 
+def test_list_returning_tools_advertise_list_in_signature():
+    """graph_find and graph_orphans return lists from the underlying server.
+
+    FastMCP's structured_content layer raises ToolError if a tool annotated
+    ``-> dict`` returns a list. So both must declare ``list | dict`` (or
+    ``list``) so FastMCP wraps the result correctly.
+    """
+    import inspect
+
+    for name in ("graph_find", "graph_orphans"):
+        sig = inspect.signature(getattr(server, name))
+        ret = str(sig.return_annotation)
+        assert "list" in ret, (
+            f"{name} returns a list at runtime; signature must declare 'list' "
+            f"so FastMCP wraps correctly. Got: {ret}"
+        )
+
+
 def test_no_write_tools_for_kb_crud():
     """The 10 graph tools deliberately exclude KB-CRUD writes (which exist in
     guru-cli but never the MCP surface — agents cannot edit federation state)."""
