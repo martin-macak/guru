@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,101 @@ class KbOpsBackend(GraphBackend, Protocol):
     def link(self, *, from_kb: str, to_kb: str, kind: str, metadata_json: str) -> None: ...
     def unlink(self, *, from_kb: str, to_kb: str, kind: str) -> bool: ...
     def list_links_for(self, *, name: str, direction: str = "both") -> list[dict[str, Any]]: ...
+
+
+@runtime_checkable
+class ArtifactOpsBackend(GraphBackend, Protocol):
+    """Declarative artifact-graph operations.
+
+    IngestService, ArtifactService, AnnotationService, and RelatesService
+    are typed against this protocol. See m0002 schema in the design spec.
+    """
+
+    # ---- Ingest path ----
+    def upsert_document(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None: ...
+
+    def upsert_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None: ...
+
+    def delete_artifact(self, *, node_id: str) -> None: ...
+
+    def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]: ...
+
+    def create_contains_edge(self, *, from_id: str, to_id: str) -> None: ...
+
+    def create_relates_edge(
+        self, *, from_id: str, to_id: str, kind: str, properties: dict[str, Any]
+    ) -> None: ...
+
+    def delete_relates_edge(self, *, from_id: str, to_id: str, kind: str) -> bool: ...
+
+    def remove_outbound_relates_rooted_at(self, *, doc_id: str) -> None: ...
+
+    def get_document_snapshot(self, *, doc_id: str) -> list[str]: ...
+
+    def set_document_snapshot(self, *, doc_id: str, node_ids: list[str]) -> None: ...
+
+    def orphan_annotations_for(self, *, node_ids: list[str]) -> None: ...
+
+    # ---- Artifact queries ----
+    def get_artifact(self, *, node_id: str) -> dict[str, Any] | None: ...
+
+    def list_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: Literal["in", "out", "both"],
+        rel_type: Literal["CONTAINS", "RELATES", "both"],
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> list[dict[str, Any]]: ...
+
+    def find_artifacts(
+        self,
+        *,
+        name: str | None,
+        qualname_prefix: str | None,
+        label: str | None,
+        tag: str | None,
+        kb_name: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]: ...
+
+    def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]: ...
+
+    def list_relates_for(self, *, node_id: str, direction: str) -> list[dict[str, Any]]: ...
+
+    # ---- Annotations ----
+    def create_annotation(
+        self,
+        *,
+        annotation_id: str,
+        target_id: str,
+        target_label: str,
+        kind: str,
+        body: str,
+        tags: list[str],
+        author: str,
+        target_snapshot_json: str,
+    ) -> dict[str, Any]: ...
+
+    def replace_summary_annotation(
+        self,
+        *,
+        annotation_id: str,
+        target_id: str,
+        target_label: str,
+        body: str,
+        tags: list[str],
+        author: str,
+        target_snapshot_json: str,
+    ) -> dict[str, Any]: ...
+
+    def delete_annotation(self, *, annotation_id: str) -> bool: ...
+
+    def list_orphans(self, *, limit: int) -> list[dict[str, Any]]: ...
+
+    def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool: ...
 
 
 class GraphBackendRegistry:

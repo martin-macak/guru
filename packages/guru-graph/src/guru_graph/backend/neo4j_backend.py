@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Iterator
@@ -16,6 +17,19 @@ from ..versioning import check_migration_target
 from .base import BackendHealth, BackendInfo, CypherResult, GraphBackendRegistry, Tx
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_ARTIFACT_LABELS = frozenset(
+    {
+        "Module",
+        "Class",
+        "Function",
+        "Method",
+        "OpenApiSpec",
+        "OpenApiOperation",
+        "OpenApiSchema",
+        "MarkdownSection",
+    }
+)
 
 
 class _Neo4jTx(Tx):
@@ -331,6 +345,475 @@ class Neo4jBackend:
                 }
                 for r in rs
             ]
+
+    # ---- Declarative artifact helpers (called by artifact services) ----
+    def upsert_document(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
+        assert label == "Document", f"upsert_document requires label='Document', got {label!r}"
+        with self._driver.session() as s:
+            s.run(
+                """
+                MERGE (d:Document {id: $id})
+                ON CREATE SET d.created_at = timestamp()
+                SET d += $props
+                SET d.updated_at = timestamp()
+                """,
+                parameters={"id": node_id, "props": dict(properties)},
+            )
+
+    def upsert_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
+        if label == "Document":
+            self.upsert_document(node_id=node_id, label=label, properties=properties)
+            return
+        if label not in _ALLOWED_ARTIFACT_LABELS:
+            raise ValueError(f"unknown artifact label: {label!r}")
+        # Label is from our allow-list, so f-string substitution is safe.
+        cypher = (
+            f"MERGE (n:{label} {{id: $id}}) "
+            "ON CREATE SET n.created_at = timestamp() "
+            "SET n += $props "
+            "SET n.updated_at = timestamp()"
+        )
+        with self._driver.session() as s:
+            s.run(cypher, parameters={"id": node_id, "props": dict(properties)})
+
+    def delete_artifact(self, *, node_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (n {id: $id}) DETACH DELETE n",
+                parameters={"id": node_id},
+            )
+
+    def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (r {id: $id})
+                OPTIONAL MATCH (r)-[:CONTAINS*0..]->(c)
+                WITH collect(DISTINCT c.id) AS child_ids, r
+                WITH [r.id] + [x IN child_ids WHERE x IS NOT NULL] AS all_ids
+                RETURN all_ids
+                """,
+                parameters={"id": node_id},
+            ).single()
+            if rec is None or rec["all_ids"] is None:
+                return []
+            # Deduplicate in order (root may also appear in child_ids).
+            seen: set[str] = set()
+            out: list[str] = []
+            for x in rec["all_ids"]:
+                if x is None or x in seen:
+                    continue
+                seen.add(x)
+                out.append(x)
+            return out
+
+    def create_contains_edge(self, *, from_id: str, to_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (a {id: $from}), (b {id: $to})
+                MERGE (a)-[:CONTAINS]->(b)
+                """,
+                parameters={"from": from_id, "to": to_id},
+            )
+
+    def create_relates_edge(
+        self, *, from_id: str, to_id: str, kind: str, properties: dict[str, Any]
+    ) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (a {id: $from}), (b {id: $to})
+                MERGE (a)-[r:RELATES {kind: $kind}]->(b)
+                ON CREATE SET r.created_at = timestamp()
+                SET r += $props
+                SET r.updated_at = timestamp()
+                """,
+                parameters={
+                    "from": from_id,
+                    "to": to_id,
+                    "kind": kind,
+                    "props": dict(properties),
+                },
+            )
+
+    def delete_relates_edge(self, *, from_id: str, to_id: str, kind: str) -> bool:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (a {id: $from})-[r:RELATES {kind: $kind}]->(b {id: $to})
+                WITH r, count(r) AS c DELETE r RETURN c
+                """,
+                parameters={"from": from_id, "to": to_id, "kind": kind},
+            ).single()
+            return bool(rec and rec["c"])
+
+    def remove_outbound_relates_rooted_at(self, *, doc_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (d:Document {id: $id})-[:CONTAINS*0..]->(n)
+                OPTIONAL MATCH (n)-[r:RELATES]->()
+                DELETE r
+                """,
+                parameters={"id": doc_id},
+            )
+
+    def get_document_snapshot(self, *, doc_id: str) -> list[str]:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (d:Document {id: $id}) RETURN d.snapshot_ids_json AS s",
+                parameters={"id": doc_id},
+            ).single()
+            if rec is None or rec["s"] is None:
+                return []
+            try:
+                parsed = json.loads(rec["s"])
+            except (ValueError, TypeError):
+                return []
+            return list(parsed) if isinstance(parsed, list) else []
+
+    def set_document_snapshot(self, *, doc_id: str, node_ids: list[str]) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (d:Document {id: $id}) SET d.snapshot_ids_json = $json",
+                parameters={"id": doc_id, "json": json.dumps(list(node_ids))},
+            )
+
+    def orphan_annotations_for(self, *, node_ids: list[str]) -> None:
+        if not node_ids:
+            return
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (a:Annotation)-[:ANNOTATES]->(t)
+                WHERE t.id IN $ids
+                SET a.updated_at = timestamp()
+                """,
+                parameters={"ids": list(node_ids)},
+            )
+            s.run(
+                """
+                MATCH (a:Annotation)-[r:ANNOTATES]->(t)
+                WHERE t.id IN $ids
+                DELETE r
+                """,
+                parameters={"ids": list(node_ids)},
+            )
+
+    def get_artifact(self, *, node_id: str) -> dict[str, Any] | None:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (n {id: $id}) RETURN labels(n) AS labels, properties(n) AS props",
+                parameters={"id": node_id},
+            ).single()
+            if rec is None:
+                return None
+            labels = [lbl for lbl in (rec["labels"] or []) if not lbl.startswith("_")]
+            if not labels:
+                return None
+            return {
+                "id": node_id,
+                "label": labels[0],
+                "properties": dict(rec["props"] or {}),
+            }
+
+    def list_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: str,
+        rel_type: str,
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        # TODO(PR-4): implement multi-hop + kind filter semantics.
+        # For now, support depth=1 only; if depth > 1 the caller is truncated
+        # with a warning (callers in PR-4/PR-6 will evolve this).
+        if depth > 1:
+            logger.warning("list_neighbors: depth>1 not yet supported; truncating to depth=1")
+        if direction == "out":
+            pattern = "(n {id: $id})-[r]->(m)"
+        elif direction == "in":
+            pattern = "(n {id: $id})<-[r]-(m)"
+        else:
+            pattern = "(n {id: $id})-[r]-(m)"
+        if rel_type == "both":
+            types_clause = "WHERE type(r) IN ['CONTAINS','RELATES']"
+        elif rel_type in ("CONTAINS", "RELATES"):
+            types_clause = f"WHERE type(r) = '{rel_type}'"
+        else:
+            types_clause = "WHERE type(r) IN ['CONTAINS','RELATES']"
+        if kind is not None:
+            types_clause += " AND (type(r) <> 'RELATES' OR r.kind = $kind)"
+        cypher = (
+            f"MATCH {pattern} {types_clause} "
+            "RETURN m.id AS id, labels(m)[0] AS label, type(r) AS rel_type, "
+            "       r.kind AS kind, 1 AS distance "
+            "LIMIT $limit"
+        )
+        params: dict[str, Any] = {"id": node_id, "limit": limit}
+        if kind is not None:
+            params["kind"] = kind
+        with self._driver.session() as s:
+            rs = s.run(cypher, parameters=params)
+            return [
+                {
+                    "id": r["id"],
+                    "label": r["label"],
+                    "rel_type": r["rel_type"],
+                    "kind": r["kind"],
+                    "distance": r["distance"],
+                }
+                for r in rs
+            ]
+
+    def find_artifacts(
+        self,
+        *,
+        name: str | None,
+        qualname_prefix: str | None,
+        label: str | None,
+        tag: str | None,
+        kb_name: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"limit": limit}
+        if label is not None:
+            if label != "Document" and label not in _ALLOWED_ARTIFACT_LABELS:
+                raise ValueError(f"unknown artifact label: {label!r}")
+            match_clause = f"MATCH (n:{label})"
+        else:
+            match_clause = "MATCH (n)"
+        filters: list[str] = []
+        if name is not None:
+            filters.append("n.name = $name")
+            params["name"] = name
+        if qualname_prefix is not None:
+            filters.append("n.qualname STARTS WITH $qualname_prefix")
+            params["qualname_prefix"] = qualname_prefix
+        if tag is not None:
+            filters.append("$tag IN n.tags")
+            params["tag"] = tag
+        if kb_name is not None:
+            filters.append("n.kb_name = $kb_name")
+            params["kb_name"] = kb_name
+        # Always filter out schema/meta nodes.
+        filters.append("NOT any(lbl IN labels(n) WHERE lbl STARTS WITH '_')")
+        where = "WHERE " + " AND ".join(filters)
+        cypher = (
+            f"{match_clause} {where} "
+            "RETURN n.id AS id, labels(n) AS labels, properties(n) AS props "
+            "LIMIT $limit"
+        )
+        with self._driver.session() as s:
+            rs = s.run(cypher, parameters=params)
+            out: list[dict[str, Any]] = []
+            for r in rs:
+                labels = [lbl for lbl in (r["labels"] or []) if not lbl.startswith("_")]
+                if not labels:
+                    continue
+                out.append(
+                    {
+                        "id": r["id"],
+                        "label": labels[0],
+                        "properties": dict(r["props"] or {}),
+                    }
+                )
+            return out
+
+    def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]:
+        with self._driver.session() as s:
+            rs = s.run(
+                """
+                MATCH (a:Annotation)-[:ANNOTATES]->(t {id: $id})
+                RETURN a.id AS annotation_id, t.id AS target_id, labels(t)[0] AS target_label,
+                       a.kind AS kind, a.body AS body, a.tags AS tags, a.author AS author,
+                       a.created_at AS created_at, a.updated_at AS updated_at,
+                       a.target_snapshot_json AS target_snapshot_json
+                """,
+                parameters={"id": node_id},
+            )
+            return [_annotation_row_to_dict(r) for r in rs]
+
+    def list_relates_for(self, *, node_id: str, direction: str) -> list[dict[str, Any]]:
+        if direction == "out":
+            cypher = (
+                "MATCH (a {id: $id})-[r:RELATES]->(b) "
+                "RETURN a.id AS from_id, b.id AS to_id, r.kind AS kind, "
+                "       properties(r) AS props"
+            )
+        elif direction == "in":
+            cypher = (
+                "MATCH (a)-[r:RELATES]->(b {id: $id}) "
+                "RETURN a.id AS from_id, b.id AS to_id, r.kind AS kind, "
+                "       properties(r) AS props"
+            )
+        else:
+            cypher = (
+                "MATCH (a)-[r:RELATES]->(b) "
+                "WHERE a.id = $id OR b.id = $id "
+                "RETURN a.id AS from_id, b.id AS to_id, r.kind AS kind, "
+                "       properties(r) AS props"
+            )
+        with self._driver.session() as s:
+            rs = s.run(cypher, parameters={"id": node_id})
+            return [
+                {
+                    "from_id": r["from_id"],
+                    "to_id": r["to_id"],
+                    "kind": r["kind"],
+                    "properties": dict(r["props"] or {}),
+                }
+                for r in rs
+            ]
+
+    def create_annotation(
+        self,
+        *,
+        annotation_id: str,
+        target_id: str,
+        target_label: str,
+        kind: str,
+        body: str,
+        tags: list[str],
+        author: str,
+        target_snapshot_json: str,
+    ) -> dict[str, Any]:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (t {id: $target_id})
+                CREATE (a:Annotation {
+                    id: $annotation_id,
+                    kind: $kind,
+                    body: $body,
+                    tags: $tags,
+                    author: $author,
+                    target_snapshot_json: $snap,
+                    created_at: timestamp(),
+                    updated_at: timestamp()
+                })
+                CREATE (a)-[:ANNOTATES]->(t)
+                RETURN a.id AS annotation_id, t.id AS target_id, labels(t)[0] AS target_label,
+                       a.kind AS kind, a.body AS body, a.tags AS tags, a.author AS author,
+                       a.created_at AS created_at, a.updated_at AS updated_at,
+                       a.target_snapshot_json AS target_snapshot_json
+                """,
+                parameters={
+                    "annotation_id": annotation_id,
+                    "target_id": target_id,
+                    "kind": kind,
+                    "body": body,
+                    "tags": list(tags),
+                    "author": author,
+                    "snap": target_snapshot_json,
+                },
+            ).single()
+            if rec is None:
+                raise KeyError(f"target {target_id!r} not found")
+            return _annotation_row_to_dict(rec)
+
+    def replace_summary_annotation(
+        self,
+        *,
+        annotation_id: str,
+        target_id: str,
+        target_label: str,
+        body: str,
+        tags: list[str],
+        author: str,
+        target_snapshot_json: str,
+    ) -> dict[str, Any]:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (t {id: $target_id})
+                MERGE (a:Annotation {id: $annotation_id})
+                ON CREATE SET a.kind = 'summary', a.body = $body, a.tags = $tags,
+                              a.author = $author, a.target_snapshot_json = $snap,
+                              a.created_at = timestamp(), a.updated_at = timestamp()
+                ON MATCH SET a.kind = 'summary', a.body = $body, a.tags = $tags,
+                             a.author = $author, a.target_snapshot_json = $snap,
+                             a.updated_at = timestamp()
+                MERGE (a)-[:ANNOTATES]->(t)
+                RETURN a.id AS annotation_id, t.id AS target_id, labels(t)[0] AS target_label,
+                       a.kind AS kind, a.body AS body, a.tags AS tags, a.author AS author,
+                       a.created_at AS created_at, a.updated_at AS updated_at,
+                       a.target_snapshot_json AS target_snapshot_json
+                """,
+                parameters={
+                    "annotation_id": annotation_id,
+                    "target_id": target_id,
+                    "body": body,
+                    "tags": list(tags),
+                    "author": author,
+                    "snap": target_snapshot_json,
+                },
+            ).single()
+            if rec is None:
+                raise KeyError(f"target {target_id!r} not found")
+            return _annotation_row_to_dict(rec)
+
+    def delete_annotation(self, *, annotation_id: str) -> bool:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (a:Annotation {id: $id})
+                WITH a, count(a) AS c DETACH DELETE a RETURN c
+                """,
+                parameters={"id": annotation_id},
+            ).single()
+            return bool(rec and rec["c"])
+
+    def list_orphans(self, *, limit: int) -> list[dict[str, Any]]:
+        with self._driver.session() as s:
+            rs = s.run(
+                """
+                MATCH (a:Annotation)
+                WHERE NOT (a)-[:ANNOTATES]->()
+                RETURN a.id AS annotation_id, NULL AS target_id, NULL AS target_label,
+                       a.kind AS kind, a.body AS body, a.tags AS tags, a.author AS author,
+                       a.created_at AS created_at, a.updated_at AS updated_at,
+                       a.target_snapshot_json AS target_snapshot_json
+                LIMIT $limit
+                """,
+                parameters={"limit": limit},
+            )
+            return [_annotation_row_to_dict(r) for r in rs]
+
+    def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (a:Annotation {id: $aid})
+                WHERE NOT (a)-[:ANNOTATES]->()
+                MATCH (t {id: $tid})
+                MERGE (a)-[:ANNOTATES]->(t)
+                SET a.updated_at = timestamp()
+                RETURN count(t) AS c
+                """,
+                parameters={"aid": annotation_id, "tid": new_target_id},
+            ).single()
+            return bool(rec and rec["c"])
+
+
+def _annotation_row_to_dict(rec) -> dict[str, Any]:
+    created = rec["created_at"]
+    updated = rec["updated_at"]
+    return {
+        "annotation_id": rec["annotation_id"],
+        "target_id": rec["target_id"],
+        "target_label": rec["target_label"],
+        "kind": rec["kind"],
+        "body": rec["body"],
+        "tags": list(rec["tags"] or []),
+        "author": rec["author"],
+        "created_at": created / 1000.0 if created is not None else None,
+        "updated_at": updated / 1000.0 if updated is not None else None,
+        "target_snapshot_json": rec["target_snapshot_json"],
+    }
 
 
 GraphBackendRegistry.register("neo4j", Neo4jBackend)
