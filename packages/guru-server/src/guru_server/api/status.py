@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 
 from guru_core.graph_errors import GraphUnavailable
 from guru_server.api.cache import _assemble_stats
-from guru_server.api.models import StatusOut
+from guru_server.api.models import StatusOut, WebRuntimeOut
 
 router = APIRouter()
 
@@ -34,6 +34,8 @@ async def get_status(request: Request):
         except Exception:
             graph_reachable = False
 
+    runtime = request.app.state.web_runtime
+
     return StatusOut(
         server_running=True,
         document_count=store.document_count(),
@@ -45,4 +47,11 @@ async def get_status(request: Request):
         cache=cache_stats,
         graph_enabled=graph_enabled,
         graph_reachable=graph_reachable,
+        web=WebRuntimeOut(
+            enabled=runtime.enabled,
+            available=runtime.available,
+            url=runtime.url,
+            reason=runtime.reason,
+            auto_open=runtime.auto_open,
+        ),
     )

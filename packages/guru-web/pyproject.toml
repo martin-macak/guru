@@ -1,0 +1,6 @@
+[project]
+name = "guru-web"
+version = "0.0.0"
+description = "Guru web client"
+requires-python = ">=3.13"
+
