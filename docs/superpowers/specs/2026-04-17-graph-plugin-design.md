@@ -1,7 +1,17 @@
 # Graph Plugin — Federated Artifact Graph Infrastructure
 
 **Date:** 2026-04-17
-**Status:** Draft
+**Status:** Implemented (PR #35), with subsequent amendments (see below).
+
+---
+
+## Amendments since initial implementation
+
+The behaviour of the shipped graph plugin diverges from this spec in three ways. Where the text below says otherwise, the current behaviour is authoritative:
+
+1. **Enabled by default.** The original spec said graph is "opt-in, off by default" (§Config gating, line 112). In practice, shipping the feature off-by-default meant nobody would turn it on. As of 2026-04-18, `GraphConfig.enabled` defaults to `True` and `GuruConfig.graph` is populated by default via `default_factory`. Users opt OUT by setting `"graph": {"enabled": false}`. Safe because graph failures already degrade silently (`graph_or_skip`).
+2. **Connect-only mode.** `Neo4jBackend` accepts an optional `bolt_uri`. When set (e.g. via `GURU_NEO4J_BOLT_URI=bolt://localhost:7687` on the daemon's env), `start()` skips preflight + subprocess spawn and connects directly. CI uses this with a `neo4j:5` docker service container. Subprocess mode is still the default.
+3. **Read-only CLI debugging commands** — `guru graph kbs`, `kb <name>`, `links <name>`, `query '<cypher>'`. Mutations remain deliberately excluded from CLI (HTTP API and `GraphClient` only). See `docs/superpowers/specs/2026-04-18-graph-readonly-cli-design.md`.
 
 ---
 

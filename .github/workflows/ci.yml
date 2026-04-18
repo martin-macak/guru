@@ -146,4 +146,6 @@ jobs:
           GURU_REAL_NEO4J: "1"
           GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
         timeout-minutes: 5
-        run: uv run behave tests/e2e/features/graph_plugin.feature
+        run: |
+          uv run behave tests/e2e/features/graph_plugin.feature
+          uv run behave tests/e2e/features/graph_cli_reads.feature

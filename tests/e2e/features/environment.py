@@ -579,7 +579,7 @@ def before_feature(context, feature):
     # Graph plugin scenarios are self-contained — they use GraphClient or a
     # FakeBackend directly rather than needing a default guru-server startup.
     # Skip the normal server-bootstrap path.
-    if "graph_plugin" in feature.filename:
+    if "graph_plugin" in feature.filename or "graph_cli_reads" in feature.filename:
         import os as _os
         import tempfile as _tempfile
 
@@ -637,7 +637,7 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """Stop the server and clean up."""
-    if "graph_plugin" in feature.filename:
+    if "graph_plugin" in feature.filename or "graph_cli_reads" in feature.filename:
         import contextlib as _ctx
         import os as _os
         import shutil as _shutil
