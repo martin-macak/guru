@@ -30,11 +30,17 @@ from guru_core.graph_types import (
 
 
 def _graph_client(context) -> GraphClient:
-    """Return a GraphClient pointed at the daemon socket set up by before_feature."""
+    """Return a GraphClient pointed at the daemon socket set up by before_feature.
+
+    `auto_start=True` lets the client spawn a guru-graph daemon on first call
+    (via `connect_or_spawn`) when the test hasn't set one up explicitly. The
+    daemon's HOME/XDG dirs are isolated under a per-feature tmpdir (see
+    `tests/e2e/features/environment.py`).
+    """
     from guru_graph.config import GraphPaths
 
     paths = GraphPaths.default()
-    return GraphClient(socket_path=str(paths.socket), auto_start=False)
+    return GraphClient(socket_path=str(paths.socket), auto_start=True)
 
 
 def _fake_app():

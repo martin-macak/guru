@@ -30,11 +30,14 @@ from guru_core.graph_types import (
 
 
 def _graph_client(context) -> GraphClient:
-    """Return a GraphClient pointed at the daemon socket set up by before_feature."""
+    """Return a GraphClient pointed at the daemon socket set up by before_feature.
+
+    `auto_start=True` lets the client spawn a guru-graph daemon on first call.
+    """
     from guru_graph.config import GraphPaths
 
     paths = GraphPaths.default()
-    return GraphClient(socket_path=str(paths.socket), auto_start=False)
+    return GraphClient(socket_path=str(paths.socket), auto_start=True)
 
 
 async def _seed_document(client: GraphClient, doc_id: str = "polyglot::docs/guide.md") -> None:
