@@ -29,10 +29,16 @@ class Chunk:
 
 
 class DocumentParser(ABC):
+    @property
     @abstractmethod
-    def parse(self, file_path: Path, rule: Rule) -> list[Chunk]: ...
+    def name(self) -> str:  # "markdown" | "python" | "openapi" | ...
+        ...
+
     @abstractmethod
     def supports(self, file_path: Path) -> bool: ...
+
+    @abstractmethod
+    def parse(self, file_path: Path, rule: Rule, *, kb_name: str) -> ParseResult: ...
 
 
 @dataclass
