@@ -119,9 +119,19 @@ export function filterInvestigateResults(query: string): InvestigateResult[] {
   });
 }
 
-function entityFromSelection(selection: WorkbenchSelection): WorkbenchEntity | null {
+function lookupWorkbenchEntity(
+  entityId: string,
+  dynamicEntities: Map<string, WorkbenchEntity>,
+): WorkbenchEntity | null {
+  return dynamicEntities.get(entityId) ?? workbenchEntityMap.get(entityId) ?? null;
+}
+
+function entityFromSelection(
+  selection: WorkbenchSelection,
+  dynamicEntities: Map<string, WorkbenchEntity>,
+): WorkbenchEntity | null {
   const entityId = selection.artifactId ?? selection.documentId;
-  return entityId ? workbenchEntityMap.get(entityId) ?? null : null;
+  return entityId ? lookupWorkbenchEntity(entityId, dynamicEntities) : null;
 }
 
 type WorkbenchContextValue = {
@@ -133,6 +143,7 @@ type WorkbenchContextValue = {
   selectDocument: (documentId: string) => void;
   selectArtifact: (artifactId: string) => void;
   selectEntity: (entityId: string) => void;
+  registerGraphEntities: (entities: WorkbenchEntity[]) => void;
 };
 
 const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);
@@ -148,7 +159,13 @@ export function WorkbenchProvider({ boot, initialSurface, children }: WorkbenchP
     documentId: null,
     artifactId: null,
   });
-  const selectedEntity = useMemo(() => entityFromSelection(selection), [selection]);
+  const [dynamicEntities, setDynamicEntities] = useState<Map<string, WorkbenchEntity>>(
+    () => new Map(),
+  );
+  const selectedEntity = useMemo(
+    () => entityFromSelection(selection, dynamicEntities),
+    [dynamicEntities, selection],
+  );
   const value = useMemo(
     () => ({
       boot,
@@ -163,7 +180,7 @@ export function WorkbenchProvider({ boot, initialSurface, children }: WorkbenchP
         setSelection({ documentId: null, artifactId });
       },
       selectEntity: (entityId: string) => {
-        const entity = workbenchEntityMap.get(entityId);
+        const entity = lookupWorkbenchEntity(entityId, dynamicEntities);
 
         if (!entity) {
           return;
@@ -176,8 +193,19 @@ export function WorkbenchProvider({ boot, initialSurface, children }: WorkbenchP
 
         setSelection({ documentId: null, artifactId: entityId });
       },
+      registerGraphEntities: (entities: WorkbenchEntity[]) => {
+        setDynamicEntities((current) => {
+          const next = new Map(current);
+
+          for (const entity of entities) {
+            next.set(entity.id, entity);
+          }
+
+          return next;
+        });
+      },
     }),
-    [boot, selectedEntity, selection, surface],
+    [boot, dynamicEntities, selectedEntity, selection, surface],
   );
 
   return createElement(WorkbenchContext.Provider, { value }, children);

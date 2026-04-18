@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
 import "reactflow/dist/style.css";
 
-import type { GraphDisabledPayload, GraphNeighborsPayload } from "../../lib/api/client";
+import type { GraphArtifactNode, GraphDisabledPayload, GraphNeighborsPayload } from "../../lib/api/client";
 import { getGraphNeighbors, isGraphDisabled } from "../../lib/api/client";
 import { useWorkbench } from "../../lib/state/workbench";
 import { mapGraph } from "./mapGraph";
@@ -23,7 +23,7 @@ function EmptyGraphState({
 }
 
 export function GraphPage() {
-  const { boot, selection, selectArtifact } = useWorkbench();
+  const { boot, selection, selectArtifact, registerGraphEntities } = useWorkbench();
   const [depth, setDepth] = useState(1);
   const [graphState, setGraphState] = useState<{
     status: "idle" | "loading" | "ready" | "error";
@@ -89,6 +89,16 @@ export function GraphPage() {
       null
     );
   }, [focusArtifactId, graphState.data]);
+
+  useEffect(() => {
+    const data = graphState.data;
+
+    if (!data || isGraphDisabled(data)) {
+      return;
+    }
+
+    registerGraphEntities(data.nodes.map(mapNodeToEntity));
+  }, [graphState.data, registerGraphEntities]);
 
   return (
     <section className="space-y-5">
@@ -200,4 +210,54 @@ export function GraphPage() {
       )}
     </section>
   );
+}
+
+function mapNodeToEntity(node: GraphArtifactNode) {
+  return {
+    id: node.id,
+    kind: "artifact" as const,
+    title: node.label,
+    location: readNodeLocation(node),
+    summary: readNodeSummary(node),
+  };
+}
+
+function readNodeLocation(node: GraphArtifactNode) {
+  const candidates = [
+    node.properties.location,
+    node.properties.path,
+    node.properties.rel_path,
+    node.properties.file_path,
+    node.properties.qualname,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.length) {
+      return candidate;
+    }
+  }
+
+  return node.id;
+}
+
+function readNodeSummary(node: GraphArtifactNode) {
+  const summary = node.properties.summary;
+
+  if (typeof summary === "string" && summary.length) {
+    return summary;
+  }
+
+  const description = node.properties.description;
+
+  if (typeof description === "string" && description.length) {
+    return description;
+  }
+
+  const kind = node.properties.kind;
+
+  if (typeof kind === "string" && kind.length) {
+    return `Artifact kind: ${kind}.`;
+  }
+
+  return `Artifact ${node.label}.`;
 }
