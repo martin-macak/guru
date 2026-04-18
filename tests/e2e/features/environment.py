@@ -622,6 +622,18 @@ def before_scenario(context, scenario):
             return
 
 
+def after_scenario(context, scenario):
+    """Stop any MCP patcher started by a step (graph_mcp_tools.feature)."""
+    import contextlib as _ctx
+
+    patcher = getattr(context, "_mcp_patcher", None)
+    if patcher is not None:
+        # Already-stopped patchers raise RuntimeError; safe to ignore.
+        with _ctx.suppress(RuntimeError):
+            patcher.stop()
+        context._mcp_patcher = None
+
+
 def before_feature(context, feature):
     """Start a fresh server for each feature.
 
@@ -673,6 +685,7 @@ def before_feature(context, feature):
         or "annotations_and_curation" in feature.filename
         or "orphan_triage" in feature.filename
         or "artifact_links" in feature.filename
+        or "graph_mcp_tools" in feature.filename
     ):
         import os as _os
         import tempfile as _tempfile
@@ -788,6 +801,7 @@ def after_feature(context, feature):
         or "annotations_and_curation" in feature.filename
         or "orphan_triage" in feature.filename
         or "artifact_links" in feature.filename
+        or "graph_mcp_tools" in feature.filename
     ):
         import contextlib as _ctx
         import os as _os
@@ -817,8 +831,13 @@ def after_feature(context, feature):
             _os.environ.pop(key, None)
         return
 
-    if hasattr(context, "_mcp_patcher"):
-        context._mcp_patcher.stop()
+    patcher = getattr(context, "_mcp_patcher", None)
+    if patcher is not None:
+        import contextlib as _ctx
+
+        with _ctx.suppress(RuntimeError):
+            patcher.stop()
+        context._mcp_patcher = None
 
     if hasattr(context, "server"):
         context.server.should_exit = True

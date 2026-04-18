@@ -17,14 +17,12 @@ Feature: Graph is strictly optional — guru operates identically without it
     Then the index command succeeds
     And the server's graph client is None
 
-  @skip_until_pr5
   Scenario: Graph MCP tools return status, not error, when disabled
     Given graph is disabled
     When MCP calls graph_describe, graph_find, graph_orphans, graph_annotate
     Then each returns {"status":"graph_disabled", ...}
     And none raise exceptions
 
-  @skip_until_pr5
   Scenario: CLI graph commands exit 0 when graph disabled
     Given graph is disabled
     When I run 'guru graph orphans'
