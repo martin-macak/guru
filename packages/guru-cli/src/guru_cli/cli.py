@@ -273,6 +273,20 @@ def server_status(job_id):
             )
 
 
+@server.command("web-open")
+def server_web_open():
+    """Open the Guru web UI in a browser."""
+    client = _get_client()
+    result = _run(client.web_open())
+    if result["url"] is None:
+        click.echo("Web UI unavailable.")
+        raise SystemExit(1)
+    if result["opened"]:
+        click.echo(f"Opened {result['url']}")
+        return
+    click.echo(f"Web UI: {result['url']}")
+
+
 @cli.command()
 def index():
     """Index documents in the knowledge base."""

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +40,15 @@ def bind_web_listener_sockets(*, uds_path: Path, port: int) -> list[socket.socke
         uds_path.unlink(missing_ok=True)
         raise
     return [uds_socket, tcp_socket]
+
+
+def open_web_browser(url: str | None) -> bool:
+    if not url:
+        return False
+    try:
+        return bool(webbrowser.open(url))
+    except webbrowser.Error:
+        return False
 
 
 def build_web_runtime(
