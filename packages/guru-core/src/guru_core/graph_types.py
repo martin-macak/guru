@@ -210,6 +210,8 @@ class ParseResultPayload(BaseModel):
 
 
 class AnnotationCreate(BaseModel):
+    """Request body for POST /annotations."""
+
     model_config = ConfigDict(extra="forbid")
     node_id: str
     kind: AnnotationKind
@@ -218,6 +220,8 @@ class AnnotationCreate(BaseModel):
 
 
 class AnnotationNode(BaseModel):
+    """Wire representation of an annotation returned by the graph daemon."""
+
     model_config = ConfigDict(extra="ignore")
     id: str
     target_id: str | None
@@ -232,6 +236,8 @@ class AnnotationNode(BaseModel):
 
 
 class OrphanAnnotation(BaseModel):
+    """An annotation whose target node no longer exists in the graph."""
+
     model_config = ConfigDict(extra="ignore")
     id: str
     kind: AnnotationKind
@@ -244,5 +250,7 @@ class OrphanAnnotation(BaseModel):
 
 
 class ReattachRequest(BaseModel):
+    """Request body for POST /annotations/{id}/reattach."""
+
     model_config = ConfigDict(extra="forbid")
     new_node_id: str
