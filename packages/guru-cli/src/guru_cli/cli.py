@@ -60,14 +60,18 @@ def _parse_duration_to_ms(text: str) -> int:
 def cli(ctx):
     """Guru CLI — local knowledge base manager."""
     if ctx.invoked_subcommand is None:
-        # Bare `guru` launches TUI (Phase 3)
-        click.echo("TUI is planned for Phase 3. Use `guru --help` for available commands.")
+        from guru_cli.tui.app import run_tui
+
+        run_tui()
 
 
 @cli.command()
 def tui():
-    """Launch the Guru TUI (planned for Phase 3)."""
-    click.echo("TUI is planned for Phase 3. Use `guru --help` for available commands.")
+    """Launch the Guru TUI."""
+
+    from guru_cli.tui.app import run_tui
+
+    run_tui()
 
 
 @cli.command()
