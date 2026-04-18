@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-PROTOCOL_VERSION = "1.0.0"
-SCHEMA_VERSION = 1
+PROTOCOL_VERSION = "1.1.0"
+SCHEMA_VERSION = 2
 
 PROTOCOL_HEADER = "X-Guru-Graph-Protocol"
 

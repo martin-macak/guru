@@ -33,7 +33,7 @@ from .graph_types import (
 
 logger = logging.getLogger(__name__)
 
-PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.1.0"
 PROTOCOL_HEADER = "X-Guru-Graph-Protocol"
 
 
