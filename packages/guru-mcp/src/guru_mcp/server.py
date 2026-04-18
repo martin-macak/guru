@@ -350,11 +350,15 @@ async def graph_annotate(
 async def graph_delete_annotation(annotation_id: str) -> dict:
     """Delete an annotation by its id.
 
+    Stamps ``agent:claude-code`` as author (deletes are writes).
+
     Args:
         annotation_id: The annotation's stable id.
     """
     client = _get_client()
-    return await client.graph_delete_annotation(annotation_id=annotation_id)
+    return await client.graph_delete_annotation(
+        annotation_id=annotation_id, mcp_client=_MCP_CLIENT_NAME
+    )
 
 
 @mcp.tool()
@@ -386,8 +390,16 @@ async def graph_link(
 
 
 @mcp.tool()
-async def graph_unlink(from_id: str, to_id: str, kind: str) -> dict:
+async def graph_unlink(
+    from_id: str,
+    to_id: str,
+    kind: Literal["imports", "inherits_from", "implements", "calls", "references", "documents"],
+) -> dict:
     """Delete a typed RELATES link between two artifacts.
+
+    Stamps ``agent:claude-code`` as author (deletes are writes). The ``kind``
+    vocabulary mirrors :func:`graph_link` so the schema gives the LLM the same
+    closed list for both directions.
 
     Args:
         from_id: Source node id.
@@ -396,7 +408,7 @@ async def graph_unlink(from_id: str, to_id: str, kind: str) -> dict:
     """
     client = _get_client()
     payload = {"from_id": from_id, "to_id": to_id, "kind": kind}
-    return await client.graph_delete_link(body=payload)
+    return await client.graph_delete_link(body=payload, mcp_client=_MCP_CLIENT_NAME)
 
 
 @mcp.tool()

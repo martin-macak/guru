@@ -166,7 +166,19 @@ async def test_graph_delete_annotation_calls_client():
     with patch.object(server, "_get_client", return_value=mock_client):
         result = await server.graph_delete_annotation(annotation_id="ann1")
     assert result == {"status": "ok"}
-    mock_client.graph_delete_annotation.assert_called_once_with(annotation_id="ann1")
+    mock_client.graph_delete_annotation.assert_called_once_with(
+        annotation_id="ann1", mcp_client="claude-code"
+    )
+
+
+async def test_graph_delete_annotation_passes_mcp_client_header():
+    """Deletes are writes — must stamp ``x-guru-mcp-client`` for author tracking."""
+    mock_client = MagicMock()
+    mock_client.graph_delete_annotation = AsyncMock(return_value={"status": "ok"})
+    with patch.object(server, "_get_client", return_value=mock_client):
+        await server.graph_delete_annotation(annotation_id="ann1")
+    args = mock_client.graph_delete_annotation.call_args
+    assert args.kwargs["mcp_client"] == "claude-code"
 
 
 async def test_graph_link_passes_mcp_client_header():
@@ -208,8 +220,19 @@ async def test_graph_unlink_calls_client():
         result = await server.graph_unlink(from_id="a", to_id="b", kind="calls")
     assert result == {"status": "ok"}
     mock_client.graph_delete_link.assert_called_once_with(
-        body={"from_id": "a", "to_id": "b", "kind": "calls"}
+        body={"from_id": "a", "to_id": "b", "kind": "calls"},
+        mcp_client="claude-code",
     )
+
+
+async def test_graph_unlink_passes_mcp_client_header():
+    """Deletes are writes — must stamp ``x-guru-mcp-client`` for author tracking."""
+    mock_client = MagicMock()
+    mock_client.graph_delete_link = AsyncMock(return_value={"status": "ok"})
+    with patch.object(server, "_get_client", return_value=mock_client):
+        await server.graph_unlink(from_id="a", to_id="b", kind="references")
+    args = mock_client.graph_delete_link.call_args
+    assert args.kwargs["mcp_client"] == "claude-code"
 
 
 async def test_graph_orphans_calls_client():

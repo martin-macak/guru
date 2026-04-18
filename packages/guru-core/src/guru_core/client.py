@@ -167,15 +167,21 @@ class GuruClient:
         headers = {"x-guru-mcp-client": mcp_client} if mcp_client else None
         return await self._post("/graph/annotations", body, headers=headers)
 
-    async def graph_delete_annotation(self, *, annotation_id: str) -> dict:
-        return await self._delete(f"/graph/annotations/{quote(annotation_id, safe='')}")
+    async def graph_delete_annotation(
+        self, *, annotation_id: str, mcp_client: str | None = None
+    ) -> dict:
+        headers = {"x-guru-mcp-client": mcp_client} if mcp_client else None
+        return await self._delete(
+            f"/graph/annotations/{quote(annotation_id, safe='')}", headers=headers
+        )
 
     async def graph_create_link(self, *, body: dict, mcp_client: str | None) -> dict:
         headers = {"x-guru-mcp-client": mcp_client} if mcp_client else None
         return await self._post("/graph/links", body, headers=headers)
 
-    async def graph_delete_link(self, *, body: dict) -> dict:
-        return await self._request_with_body("DELETE", "/graph/links", body)
+    async def graph_delete_link(self, *, body: dict, mcp_client: str | None = None) -> dict:
+        headers = {"x-guru-mcp-client": mcp_client} if mcp_client else None
+        return await self._request_with_body("DELETE", "/graph/links", body, headers=headers)
 
     async def graph_orphans(self, *, limit: int = 50) -> dict | list:
         return await self._get(f"/graph/orphans?limit={limit}")
