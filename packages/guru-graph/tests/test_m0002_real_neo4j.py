@@ -12,8 +12,33 @@ def test_m0002_applied_to_empty_neo4j(real_neo4j_backend):
 
     result = real_neo4j_backend.execute_read("SHOW CONSTRAINTS YIELD name RETURN name", {})
     names = {row[0] for row in result.rows}
-    assert "document_id_unique" in names
-    assert "annotation_id_unique" in names
+    expected = {
+        "document_id_unique",
+        "module_id_unique",
+        "class_id_unique",
+        "function_id_unique",
+        "method_id_unique",
+        "oas_spec_id_unique",
+        "oas_op_id_unique",
+        "oas_schema_id_unique",
+        "md_section_id_unique",
+        "annotation_id_unique",
+    }
+    assert expected <= names, f"missing constraints: {expected - names}"
+
+    idx_result = real_neo4j_backend.execute_read("SHOW INDEXES YIELD name RETURN name", {})
+    idx_names = {row[0] for row in idx_result.rows}
+    expected_indexes = {
+        "document_kb_name",
+        "document_language",
+        "annotation_kind",
+        "annotation_author",
+        "module_qualname",
+        "class_qualname",
+        "function_qualname",
+        "method_qualname",
+    }
+    assert expected_indexes <= idx_names, f"missing indexes: {expected_indexes - idx_names}"
 
 
 def test_m0002_is_idempotent_on_real_neo4j(real_neo4j_backend):
