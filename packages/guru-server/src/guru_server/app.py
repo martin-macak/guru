@@ -14,6 +14,7 @@ from guru_server.embedding import OllamaEmbedder
 from guru_server.graph_integration import build_graph_client_if_enabled, register_self_kb
 from guru_server.indexer import BackgroundIndexer
 from guru_server.ingestion.markdown import MarkdownParser
+from guru_server.ingestion.openapi import OpenApiParser
 from guru_server.ingestion.python import PythonParser
 from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
@@ -209,12 +210,17 @@ def create_app(
     )
 
     # Build parser registry — the extension point for ingestion formats.
-    # Future parsers (OpenAPI) register here with no core change.
+    # Registered in priority order: Markdown for .md, Python for .py,
+    # OpenApi last because its `supports()` is suffix-only (.yaml/.yml/.json)
+    # and would otherwise claim any YAML/JSON file. In practice ParserRegistry
+    # dispatches to the first parser that matches the file suffix; ordering
+    # matters only when two parsers share a suffix, which none do today.
     parser_registry = ParserRegistry()
     parser_registry.register(MarkdownParser())
     parser_registry.register(
         PythonParser(package_roots=_detect_package_roots(Path(app.state.project_root)))
     )
+    parser_registry.register(OpenApiParser())
     app.state.parser_registry = parser_registry
 
     # Build graph client before BackgroundIndexer so it can be passed in.
