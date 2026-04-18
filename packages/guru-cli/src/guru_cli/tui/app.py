@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
 from textual.events import Key
@@ -7,7 +9,7 @@ from textual.widgets import Footer, Header, Input, Static
 
 from .bindings import APP_BINDINGS
 from .controllers.investigate import InvestigateController
-from .state import WorkbenchState
+from .state import WorkbenchMode, WorkbenchState
 from .widgets.detail_panel import DetailPanelWidget
 from .widgets.investigation import InvestigationPane
 from .widgets.knowledge_tree import KnowledgeTreeWidget
@@ -23,9 +25,6 @@ class WorkbenchApp(App[None]):
         self.session = session
         self._investigate = InvestigateController(session) if session is not None else None
         self._state = WorkbenchState()
-        self.selected_mode = "investigate"
-        self.tree_visible = True
-        self.detail_visible = True
         self._mode_label: Static | None = None
         self._body_label: Static | None = None
         self._tree_label: Static | None = None
@@ -49,25 +48,29 @@ class WorkbenchApp(App[None]):
         self._tree_label = self.query_one("#tree-label", Static)
         self._detail_label = self.query_one("#detail-label", Static)
         self.query_one("#investigation-input", Input).disabled = True
+        self.query_one("#knowledge-tree").display = self.tree_visible
+        self.query_one("#detail-panel").display = self.detail_visible
         self.set_focus(None)
         self._sync_view()
 
     def action_switch_mode(self, mode: str) -> None:
         if mode not in {"investigate", "graph", "query", "operate"}:
             raise ValueError(f"Unknown mode: {mode}")
-        self.selected_mode = mode
+        self._state = replace(self._state, mode=WorkbenchMode(mode))
         self._sync_view()
 
     def action_toggle_tree(self) -> None:
-        self.tree_visible = not self.tree_visible
+        panels = replace(self._state.panels, tree_visible=not self.tree_visible)
+        self._state = replace(self._state, panels=panels)
         tree = self.query_one("#knowledge-tree")
-        tree.display = not self.tree_visible
+        tree.display = self.tree_visible
         self._sync_view()
 
     def action_toggle_detail(self) -> None:
-        self.detail_visible = not self.detail_visible
+        panels = replace(self._state.panels, detail_visible=not self.detail_visible)
+        self._state = replace(self._state, panels=panels)
         detail = self.query_one("#detail-panel")
-        detail.display = not self.detail_visible
+        detail.display = self.detail_visible
         self._sync_view()
 
     def _sync_view(self) -> None:
@@ -99,6 +102,18 @@ class WorkbenchApp(App[None]):
         self.query_one("#results", Static).update(content)
         event.input.disabled = True
         self.set_focus(None)
+
+    @property
+    def selected_mode(self) -> str:
+        return self._state.mode.value
+
+    @property
+    def tree_visible(self) -> bool:
+        return self._state.panels.tree_visible
+
+    @property
+    def detail_visible(self) -> bool:
+        return self._state.panels.detail_visible
 
 
 def run_tui() -> None:
