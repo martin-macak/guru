@@ -18,9 +18,9 @@ def md_tmp(tmp_path: Path) -> Path:
 def test_markdown_parser_returns_parse_result(md_tmp: Path):
     parser = MarkdownParser()
     rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
-    result = parser.parse(md_tmp, rule, kb_name="alpha")
+    result = parser.parse(md_tmp, rule, kb_name="alpha", rel_path=md_tmp.name)
     assert result.document.label == "Document"
-    assert result.document.node_id.startswith("alpha::")
+    assert result.document.node_id == f"alpha::{md_tmp.name}"
     assert result.document.properties["language"] == "markdown"
     assert result.document.properties["file_type"] == "doc"
     assert len(result.chunks) >= 2
@@ -29,7 +29,7 @@ def test_markdown_parser_returns_parse_result(md_tmp: Path):
 def test_markdown_parser_emits_section_nodes(md_tmp: Path):
     parser = MarkdownParser()
     rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
-    result = parser.parse(md_tmp, rule, kb_name="alpha")
+    result = parser.parse(md_tmp, rule, kb_name="alpha", rel_path=md_tmp.name)
     section_nodes = [n for n in result.nodes if n.label == "MarkdownSection"]
     assert len(section_nodes) >= 2
 
@@ -37,7 +37,7 @@ def test_markdown_parser_emits_section_nodes(md_tmp: Path):
 def test_markdown_parser_emits_contains_edges(md_tmp: Path):
     parser = MarkdownParser()
     rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
-    result = parser.parse(md_tmp, rule, kb_name="alpha")
+    result = parser.parse(md_tmp, rule, kb_name="alpha", rel_path=md_tmp.name)
     contains = [e for e in result.edges if e.rel_type == "CONTAINS"]
     assert any(e.from_id == result.document.node_id for e in contains)
 
@@ -45,7 +45,7 @@ def test_markdown_parser_emits_contains_edges(md_tmp: Path):
 def test_markdown_parser_chunks_carry_pointer_metadata(md_tmp: Path):
     parser = MarkdownParser()
     rule = Rule(ruleName="default", match=MatchConfig(glob="**/*.md"))
-    result = parser.parse(md_tmp, rule, kb_name="alpha")
+    result = parser.parse(md_tmp, rule, kb_name="alpha", rel_path=md_tmp.name)
     for c in result.chunks:
         assert c.kind == "markdown_section"
         assert c.language == "markdown"
@@ -76,7 +76,7 @@ def test_markdown_parser_h2_merge_keeps_nodes_aligned_with_chunks(tmp_path: Path
         match=MatchConfig(glob="**/*.md"),
         chunking=ChunkingConfig(split_level="h2"),
     )
-    result = parser.parse(p, rule, kb_name="alpha")
+    result = parser.parse(p, rule, kb_name="alpha", rel_path=p.name)
 
     section_breadcrumbs = {
         sn.properties["breadcrumb"] for sn in result.nodes if sn.label == "MarkdownSection"

@@ -38,7 +38,9 @@ class DocumentParser(ABC):
     def supports(self, file_path: Path) -> bool: ...
 
     @abstractmethod
-    def parse(self, file_path: Path, rule: Rule, *, kb_name: str) -> ParseResult: ...
+    def parse(
+        self, file_path: Path, rule: Rule, *, kb_name: str, rel_path: str
+    ) -> ParseResult: ...
 
 
 @dataclass

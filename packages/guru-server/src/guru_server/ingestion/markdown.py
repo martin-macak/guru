@@ -53,7 +53,7 @@ class MarkdownParser(DocumentParser):
     def supports(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in (".md", ".markdown")
 
-    def parse(self, file_path: Path, rule: Rule, *, kb_name: str) -> ParseResult:
+    def parse(self, file_path: Path, rule: Rule, *, kb_name: str, rel_path: str) -> ParseResult:
         raw = file_path.read_text(encoding="utf-8")
         post = frontmatter.loads(raw)
         fm = _sanitize_frontmatter(dict(post.metadata))
@@ -65,13 +65,13 @@ class MarkdownParser(DocumentParser):
         if rule.chunking is not None:
             split_level = rule.chunking.split_level
 
-        document_id = f"{kb_name}::{file_path.as_posix()}"
+        document_id = f"{kb_name}::{rel_path}"
         document_node = GraphNode(
             node_id=document_id,
             label="Document",
             properties={
                 "kb_name": kb_name,
-                "relative_path": file_path.as_posix(),
+                "relative_path": rel_path,
                 "absolute_path": str(file_path),
                 "language": "markdown",
                 "file_type": "doc",
