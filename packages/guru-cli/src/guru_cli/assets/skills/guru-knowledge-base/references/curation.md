@@ -9,8 +9,10 @@ annotations on that node:
   `summary`, **update** it (summaries are replace-in-place).
 - If it's a `gotcha`, `caveat`, or `note` and the existing entry already
   captures the insight, **skip** — don't duplicate.
-- If the existing entry is partially right but stale, prefer
-  `graph_update_annotation` over a second annotation.
+- If the existing entry is partially right but stale, replace it:
+  `graph_delete_annotation(annotation_id)` then write a fresh one with
+  `graph_annotate(...)` — the MCP surface is intentionally
+  add-or-delete; in-place edits go through that pair.
 
 Duplication erodes the KB's signal-to-noise ratio fast. A single canonical
 note is worth more than three near-duplicates.

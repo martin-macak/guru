@@ -53,8 +53,13 @@ does not change. Renames produce orphans — see `orphans.md`.
 These are the typed shapes returned by the MCP tools and `/graph/*` HTTP
 endpoints; keep them in mind when reading tool responses:
 
-- `ArtifactNode` — id, label, kb, breadcrumb, metadata.
-- `AnnotationNode` — id, kind, body, tags, author, created_at.
-- `ArtifactLink` — from_id, to_id, kind, metadata.
-- `GraphEdgePayload` — generic edge shape used in describe/neighbors
-  responses.
+- `ArtifactNode` — `id`, `label`, `properties` (the parser-emitted dict —
+  read `properties.get("kb_name")` / `properties.get("breadcrumb")` /
+  `properties.get("qualname")` here), plus inline `annotations`,
+  `links_out`, `links_in`.
+- `AnnotationNode` — `id`, `target_id`, `target_label`, `kind`, `body`,
+  `tags`, `author`, `created_at`, `updated_at`, `target_snapshot_json`.
+- `ArtifactLink` — `from_id`, `to_id`, `kind`, `created_at`, `author`
+  (nullable), `metadata`.
+- `GraphEdgePayload` — generic edge shape (`from_id`, `to_id`,
+  `rel_type`, `kind`, `properties`) used in `graph_neighbors` responses.
