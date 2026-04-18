@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from fastmcp import FastMCP
 
@@ -13,6 +14,12 @@ from guru_mcp.federation import CodebaseCloner, FederatedSearcher
 from guru_server.federation import FederationRegistry
 
 mcp = FastMCP("guru")
+
+# Identifier sent to guru-server on graph writes via the ``x-guru-mcp-client``
+# header. The server stamps annotations/links with ``agent:<this-value>`` when
+# no explicit ``X-Guru-Author`` header is present. Held as a constant for now;
+# future work could detect the actual client (Claude Code, Cursor, VSCode, ...).
+_MCP_CLIENT_NAME = "claude-code"
 
 
 def _get_client() -> GuruClient:
@@ -230,6 +237,205 @@ async def unmount_codebase(server_name: str) -> dict:
     cloner = CodebaseCloner(local_project_root=guru_root)
     cloner.unmount(server_name)
     return {"status": "ok", "server_name": server_name}
+
+
+# --- Graph tools (proxy to guru-server /graph/* via GuruClient) ---
+
+
+@mcp.tool()
+async def graph_describe(node_id: str) -> dict:
+    """Fetch a graph node with its properties, annotations, and direct links.
+
+    Returns ``{"status": "graph_disabled", ...}`` if the graph daemon isn't
+    reachable (the server swallows ``GraphUnavailable`` and falls back).
+
+    Args:
+        node_id: Stable graph node id (e.g. ``kb::doc::path/to/file.md``).
+    """
+    client = _get_client()
+    return await client.graph_describe(node_id=node_id)
+
+
+@mcp.tool()
+async def graph_neighbors(
+    node_id: str,
+    direction: Literal["in", "out", "both"] = "both",
+    rel_type: Literal["CONTAINS", "RELATES", "both"] = "both",
+    kind: str | None = None,
+    depth: int = 1,
+    limit: int = 50,
+) -> dict:
+    """Walk neighbors of ``node_id`` up to ``depth`` hops.
+
+    Args:
+        node_id: Source node id.
+        direction: ``in``, ``out``, or ``both`` (default ``both``).
+        rel_type: ``CONTAINS``, ``RELATES``, or ``both`` (default ``both``).
+        kind: Optional RELATES sub-kind filter (imports, calls, ...).
+        depth: Hop count (default 1).
+        limit: Max neighbors to return (default 50).
+    """
+    client = _get_client()
+    return await client.graph_neighbors(
+        node_id=node_id,
+        direction=direction,
+        rel_type=rel_type,
+        kind=kind,
+        depth=depth,
+        limit=limit,
+    )
+
+
+@mcp.tool()
+async def graph_find(
+    name: str | None = None,
+    qualname_prefix: str | None = None,
+    label: str | None = None,
+    tag: str | None = None,
+    kb_name: str | None = None,
+    limit: int = 50,
+) -> dict:
+    """Search artifacts by name, qualname prefix, label, tag, or KB name.
+
+    Only non-None arguments are forwarded to the server, so omitting a
+    filter doesn't constrain the search.
+
+    Args:
+        name: Exact node name (e.g. function/class name).
+        qualname_prefix: Match nodes whose qualname starts with this prefix.
+        label: Filter by node label (e.g. ``Function``, ``Document``).
+        tag: Filter by annotation tag.
+        kb_name: Restrict to a single knowledge-base by name.
+        limit: Max results (default 50).
+    """
+    client = _get_client()
+    body: dict = {"limit": limit}
+    if name is not None:
+        body["name"] = name
+    if qualname_prefix is not None:
+        body["qualname_prefix"] = qualname_prefix
+    if label is not None:
+        body["label"] = label
+    if tag is not None:
+        body["tag"] = tag
+    if kb_name is not None:
+        body["kb_name"] = kb_name
+    return await client.graph_find(body=body)
+
+
+@mcp.tool()
+async def graph_annotate(
+    node_id: str,
+    kind: Literal["summary", "gotcha", "caveat", "note"],
+    body: str,
+    tags: list[str] | None = None,
+) -> dict:
+    """Create or replace an annotation on a graph node.
+
+    ``summary`` annotations replace the existing summary in-place; the other
+    kinds append. The MCP server stamps ``agent:claude-code`` as author.
+
+    Args:
+        node_id: Target node id.
+        kind: ``summary``, ``gotcha``, ``caveat``, or ``note``.
+        body: Annotation text.
+        tags: Optional list of tags to attach.
+    """
+    client = _get_client()
+    payload = {"node_id": node_id, "kind": kind, "body": body, "tags": tags or []}
+    return await client.graph_create_annotation(body=payload, mcp_client=_MCP_CLIENT_NAME)
+
+
+@mcp.tool()
+async def graph_delete_annotation(annotation_id: str) -> dict:
+    """Delete an annotation by its id.
+
+    Args:
+        annotation_id: The annotation's stable id.
+    """
+    client = _get_client()
+    return await client.graph_delete_annotation(annotation_id=annotation_id)
+
+
+@mcp.tool()
+async def graph_link(
+    from_id: str,
+    to_id: str,
+    kind: Literal["imports", "inherits_from", "implements", "calls", "references", "documents"],
+    metadata: dict | None = None,
+) -> dict:
+    """Create a typed RELATES link between two artifacts.
+
+    The MCP server stamps ``agent:claude-code`` as author.
+
+    Args:
+        from_id: Source node id.
+        to_id: Target node id.
+        kind: Link sub-kind (imports, inherits_from, implements, calls,
+            references, or documents).
+        metadata: Optional metadata dict to attach to the link.
+    """
+    client = _get_client()
+    payload = {
+        "from_id": from_id,
+        "to_id": to_id,
+        "kind": kind,
+        "metadata": metadata or {},
+    }
+    return await client.graph_create_link(body=payload, mcp_client=_MCP_CLIENT_NAME)
+
+
+@mcp.tool()
+async def graph_unlink(from_id: str, to_id: str, kind: str) -> dict:
+    """Delete a typed RELATES link between two artifacts.
+
+    Args:
+        from_id: Source node id.
+        to_id: Target node id.
+        kind: Link sub-kind to delete.
+    """
+    client = _get_client()
+    payload = {"from_id": from_id, "to_id": to_id, "kind": kind}
+    return await client.graph_delete_link(body=payload)
+
+
+@mcp.tool()
+async def graph_orphans(limit: int = 50) -> dict:
+    """List orphaned annotations whose target node was deleted.
+
+    Args:
+        limit: Max results (default 50).
+    """
+    client = _get_client()
+    return await client.graph_orphans(limit=limit)
+
+
+@mcp.tool()
+async def graph_reattach_orphan(annotation_id: str, new_node_id: str) -> dict:
+    """Reattach an orphaned annotation to a new target node.
+
+    Args:
+        annotation_id: The orphaned annotation's id.
+        new_node_id: New target node id.
+    """
+    client = _get_client()
+    payload = {"new_node_id": new_node_id}
+    return await client.graph_reattach_orphan(annotation_id=annotation_id, body=payload)
+
+
+@mcp.tool()
+async def graph_query(cypher: str, params: dict | None = None) -> dict:
+    """Run a read-only Cypher query against the graph.
+
+    Writes are blocked at the server (``read_only: True`` is enforced
+    server-side regardless of what the client sends).
+
+    Args:
+        cypher: Cypher query string.
+        params: Optional query parameters dict.
+    """
+    client = _get_client()
+    return await client.graph_query(cypher=cypher, params=params)
 
 
 def main():
