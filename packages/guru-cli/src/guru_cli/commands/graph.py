@@ -20,8 +20,19 @@ from typing import Any as _Any
 
 import click
 
+from guru_core.config import resolve_config
+from guru_core.discovery import find_guru_root
 from guru_core.graph_errors import GraphUnavailable
-from guru_core.graph_types import KbLink, KbNode, QueryResult
+from guru_core.graph_types import (
+    AnnotationNode,
+    ArtifactFindQuery,
+    ArtifactNeighborsResult,
+    ArtifactNode,
+    KbLink,
+    KbNode,
+    OrphanAnnotation,
+    QueryResult,
+)
 
 _ELLIPSIS = "\u2026"  # …
 
@@ -143,6 +154,93 @@ def _stringify(value: _Any) -> str:
     if isinstance(value, dict | list):
         return _json.dumps(value, default=str)
     return str(value)
+
+
+def _fmt_props(properties: dict[str, _Any]) -> str:
+    if not properties:
+        return "-"
+    return ", ".join(f"{k}={_stringify(v)}" for k, v in properties.items())
+
+
+def _render_artifact_node_kv(node: ArtifactNode) -> str:
+    lines = [
+        f"id:          {node.id}",
+        f"label:       {node.label}",
+        f"properties:  {_fmt_props(node.properties)}",
+        f"annotations: {len(node.annotations)}",
+        f"links_out:   {len(node.links_out)}",
+        f"links_in:    {len(node.links_in)}",
+    ]
+    return "\n".join(lines)
+
+
+def _render_neighbors_table(result: ArtifactNeighborsResult, *, truncate: bool) -> str:
+    headers = ["ID", "LABEL", "REL_TYPE", "KIND"]
+    # Build a quick lookup from node_id -> node for label rendering.
+    nodes_by_id: dict[str, ArtifactNode] = {n.id: n for n in result.nodes}
+    rows: list[list[str]] = []
+    for edge in result.edges:
+        # The "neighbor" is whichever endpoint isn't the queried node.
+        neighbor_id = edge.to_id if edge.from_id == result.node_id else edge.from_id
+        neighbor = nodes_by_id.get(neighbor_id)
+        label = neighbor.label if neighbor is not None else "-"
+        rows.append([neighbor_id, label, edge.rel_type, edge.kind or "-"])
+    if not rows:
+        return _format_table(headers, [], truncate=truncate) + "\n(no neighbors)"
+    return _format_table(headers, rows, truncate=truncate)
+
+
+def _render_artifacts_table(nodes: list[ArtifactNode], *, truncate: bool) -> str:
+    headers = ["ID", "LABEL", "KB_NAME"]
+    rows = [[n.id, n.label, _stringify(n.properties.get("kb_name", "-"))] for n in nodes]
+    if not rows:
+        return _format_table(headers, [], truncate=truncate) + "\n(no matches)"
+    return _format_table(headers, rows, truncate=truncate)
+
+
+def _render_annotations_table(
+    annotations: list[AnnotationNode] | list[OrphanAnnotation],
+    *,
+    truncate: bool,
+    empty_label: str,
+) -> str:
+    headers = ["ID", "KIND", "AUTHOR", "CREATED", "BODY"]
+    rows = [
+        [
+            a.id,
+            a.kind.value,
+            a.author,
+            _fmt_dt(a.created_at),
+            _trunc(a.body.replace("\n", " "), 60),
+        ]
+        for a in annotations
+    ]
+    if not rows:
+        return _format_table(headers, [], truncate=truncate) + f"\n({empty_label})"
+    return _format_table(headers, rows, truncate=truncate)
+
+
+def _exit_if_graph_disabled() -> None:
+    """If the local guru.json sets graph.enabled=false, print and exit 0.
+
+    This is a per-command pre-flight check so that read-only artifact
+    subcommands do not even attempt to connect to the daemon when the
+    project has explicitly opted out.
+
+    If we cannot determine whether the graph is enabled (e.g. we are not
+    inside a guru project), fall through silently — the daemon call will
+    fail with the usual "unreachable" error if needed.
+    """
+    try:
+        from pathlib import Path
+
+        root = find_guru_root(Path.cwd())
+        cfg = resolve_config(project_root=root)
+    except Exception:
+        return
+    if cfg.graph is not None and cfg.graph.enabled is False:
+        click.echo("graph is disabled")
+        sys.exit(0)
 
 
 def _client():
@@ -375,3 +473,238 @@ def query(cypher: str | None, as_json: bool) -> None:
         click.echo(_json.dumps(result.model_dump(mode="json"), indent=2, default=str))
     else:
         click.echo(_render_query_result(result))
+
+
+@graph_group.command(name="describe")
+@click.argument("node_id")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the ArtifactNode as JSON.",
+)
+def describe(node_id: str, as_json: bool) -> None:
+    """Show an artifact node, with annotations and links inline."""
+    _exit_if_graph_disabled()
+    client = _client()
+    node = _handle_graph_errors(client.describe_artifact(node_id=node_id))
+    if node is None:
+        click.echo(f"node {node_id!r} not found", err=True)
+        sys.exit(1)
+    if as_json:
+        click.echo(_json.dumps(node.model_dump(mode="json"), indent=2, default=str))
+    else:
+        click.echo(_render_artifact_node_kv(node))
+
+
+@graph_group.command(name="neighbors")
+@click.argument("node_id")
+@click.option(
+    "--direction",
+    type=click.Choice(["in", "out", "both"]),
+    default="both",
+    help="Which direction of edges to walk.",
+)
+@click.option(
+    "--rel-type",
+    type=click.Choice(["CONTAINS", "RELATES", "both"]),
+    default="both",
+    help="Which edge type(s) to include.",
+)
+@click.option(
+    "--kind",
+    type=str,
+    default=None,
+    help="Filter RELATES edges by kind (e.g. imports, calls).",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=1,
+    help="Maximum hop depth.",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=50,
+    help="Maximum neighbors to return.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the ArtifactNeighborsResult as JSON.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long values.",
+)
+def neighbors(
+    node_id: str,
+    direction: str,
+    rel_type: str,
+    kind: str | None,
+    depth: int,
+    limit: int,
+    as_json: bool,
+    no_truncate: bool,
+) -> None:
+    """List a node's graph neighbors."""
+    _exit_if_graph_disabled()
+    client = _client()
+    result = _handle_graph_errors(
+        client.neighbors(
+            node_id=node_id,
+            direction=direction,  # type: ignore[arg-type]
+            rel_type=rel_type,  # type: ignore[arg-type]
+            kind=kind,
+            depth=depth,
+            limit=limit,
+        )
+    )
+    if as_json:
+        click.echo(_json.dumps(result.model_dump(mode="json"), indent=2, default=str))
+    else:
+        click.echo(_render_neighbors_table(result, truncate=not no_truncate))
+
+
+@graph_group.command(name="find")
+@click.option("--name", type=str, default=None, help="Filter by exact name (or qualname).")
+@click.option(
+    "--qualname-prefix",
+    type=str,
+    default=None,
+    help="Filter by qualified name prefix.",
+)
+@click.option("--label", type=str, default=None, help="Filter by node label.")
+@click.option("--tag", type=str, default=None, help="Filter by tag.")
+@click.option("--kb-name", type=str, default=None, help="Filter by KB name.")
+@click.option("--limit", type=int, default=50, help="Maximum results.")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the matched ArtifactNodes as JSON.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long values.",
+)
+def find(
+    name: str | None,
+    qualname_prefix: str | None,
+    label: str | None,
+    tag: str | None,
+    kb_name: str | None,
+    limit: int,
+    as_json: bool,
+    no_truncate: bool,
+) -> None:
+    """Search for artifacts matching the given filters."""
+    _exit_if_graph_disabled()
+    client = _client()
+    q = ArtifactFindQuery(
+        name=name,
+        qualname_prefix=qualname_prefix,
+        label=label,
+        tag=tag,
+        kb_name=kb_name,
+        limit=limit,
+    )
+    nodes = _handle_graph_errors(client.find_artifacts(q))
+    if as_json:
+        click.echo(
+            _json.dumps(
+                [n.model_dump(mode="json") for n in nodes],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        click.echo(_render_artifacts_table(nodes, truncate=not no_truncate))
+
+
+@graph_group.command(name="annotations")
+@click.argument("node_id")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the annotations list as JSON.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long bodies.",
+)
+def annotations(node_id: str, as_json: bool, no_truncate: bool) -> None:
+    """List annotations attached to a node."""
+    _exit_if_graph_disabled()
+    client = _client()
+    node = _handle_graph_errors(client.describe_artifact(node_id=node_id))
+    if node is None:
+        click.echo(f"node {node_id!r} not found", err=True)
+        sys.exit(1)
+    if as_json:
+        click.echo(
+            _json.dumps(
+                [a.model_dump(mode="json") for a in node.annotations],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        click.echo(
+            _render_annotations_table(
+                node.annotations,
+                truncate=not no_truncate,
+                empty_label="no annotations",
+            )
+        )
+
+
+@graph_group.command(name="orphans")
+@click.option("--limit", type=int, default=50, help="Maximum orphans to list.")
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit the OrphanAnnotation list as JSON.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long bodies.",
+)
+def orphans(limit: int, as_json: bool, no_truncate: bool) -> None:
+    """List orphaned annotations (those whose target node was deleted)."""
+    _exit_if_graph_disabled()
+    client = _client()
+    items = _handle_graph_errors(client.list_orphans(limit=limit))
+    if as_json:
+        click.echo(
+            _json.dumps(
+                [o.model_dump(mode="json") for o in items],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        click.echo(
+            _render_annotations_table(
+                items,
+                truncate=not no_truncate,
+                empty_label="no orphans",
+            )
+        )
