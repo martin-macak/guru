@@ -132,13 +132,7 @@ async def _seed_py_class_and_openapi_schema(client: GraphClient) -> None:
     await client.submit_parse_result(kb_name="polyglot", payload=py_payload)
 
     # OpenAPI side: Document (the spec file) -> OpenApiSchema.
-    #
-    # Note: the document node uses label "Document" rather than the
-    # parser-emitted "OpenApiSpec" because IngestService.submit funnels
-    # ``payload.document`` through ``upsert_document``, which strictly
-    # requires label="Document". For this BDD seed we only need the
-    # ``components/schemas/UserResource`` node_id to exist as the link
-    # target — its OpenApiSchema label is the load-bearing detail.
+    # label="Document" matches the shape OpenApiParser now correctly emits.
     oa_payload = ParseResultPayload(
         chunks_count=1,
         document=GraphNodePayload(

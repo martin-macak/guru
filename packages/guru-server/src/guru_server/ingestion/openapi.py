@@ -1,12 +1,17 @@
 """OpenAPI 3.x parser (YAML + JSON).
 
 Emits:
-  (:OpenApiSpec)       — the spec file (also serves as the Document)
+  (:Document)          — the spec file (anchors the file in the graph)
+  (:OpenApiSpec)       — sub-artifact with version/title metadata
   (:OpenApiOperation)  — each paths.<path>.<method> entry
   (:OpenApiSchema)     — each components/schemas/<Name> entry
 
-Plus CONTAINS edges (Spec → Operation, Spec → Schema) and
-RELATES{kind:"references"} edges for $ref usages (Operation → Schema,
+Plus CONTAINS edges:
+  Document → OpenApiSpec
+  OpenApiSpec → Operation
+  OpenApiSpec → Schema
+
+And RELATES{kind:"references"} edges for $ref usages (Operation → Schema,
 Schema → Schema, including cross-file $ref to placeholder ids).
 
 Out of scope per PR-8: actually parsing cross-file refs (we emit edges
@@ -55,7 +60,8 @@ class OpenApiParser(DocumentParser):
         if not rel_path:
             rel_path = file_path.name
 
-        spec_id = f"{kb_name}::{rel_path}"
+        doc_id = f"{kb_name}::{rel_path}"
+        spec_id = f"{kb_name}::{rel_path}::spec"
         language = "json" if file_path.suffix.lower() == ".json" else "yaml"
 
         # Load — tolerate parse errors gracefully.
@@ -63,11 +69,11 @@ class OpenApiParser(DocumentParser):
             raw = file_path.read_text(encoding="utf-8")
             doc = yaml.safe_load(raw)
         except (OSError, yaml.YAMLError) as e:
-            return self._malformed(spec_id, kb_name, rel_path, file_path, language, str(e))
+            return self._malformed(doc_id, kb_name, rel_path, file_path, language, str(e))
 
         if not isinstance(doc, dict):
             return self._malformed(
-                spec_id,
+                doc_id,
                 kb_name,
                 rel_path,
                 file_path,
@@ -81,7 +87,7 @@ class OpenApiParser(DocumentParser):
             return ParseResult(
                 chunks=[],
                 document=GraphNode(
-                    node_id=spec_id,
+                    node_id=doc_id,
                     label="Document",
                     properties=self._doc_properties(kb_name, rel_path, file_path, language)
                     | {"openapi": False},
@@ -90,22 +96,30 @@ class OpenApiParser(DocumentParser):
                 edges=[],
             )
 
+        # Document node — satisfies IngestService.submit / upsert_document contract.
+        doc_node = GraphNode(
+            node_id=doc_id,
+            label="Document",
+            properties=self._doc_properties(kb_name, rel_path, file_path, language),
+        )
+
+        # OpenApiSpec sub-artifact — carries version/title metadata.
         spec_node = GraphNode(
             node_id=spec_id,
             label="OpenApiSpec",
-            properties=self._doc_properties(kb_name, rel_path, file_path, language)
-            | {
+            properties={
+                "kb_name": kb_name,
                 "openapi_version": str(doc.get("openapi") or doc.get("swagger") or "unknown"),
                 "title": str((doc.get("info") or {}).get("title") or ""),
                 "valid": True,
             },
         )
 
-        nodes: list[GraphNode] = []
-        edges: list[GraphEdge] = []
+        nodes: list[GraphNode] = [spec_node]
+        edges: list[GraphEdge] = [GraphEdge(from_id=doc_id, to_id=spec_id, rel_type="CONTAINS")]
         chunks: list[Chunk] = []
 
-        # Operations
+        # Operations — hang off the OpenApiSpec node.
         paths = doc.get("paths") or {}
         if isinstance(paths, dict):
             for path_str, path_item in paths.items():
@@ -138,7 +152,7 @@ class OpenApiParser(DocumentParser):
                     chunks.append(
                         self._operation_chunk(
                             op_node_id=op_node_id,
-                            doc_id=spec_id,
+                            doc_id=doc_id,
                             path=path_str,
                             method=method_lower,
                             op=op,
@@ -157,7 +171,7 @@ class OpenApiParser(DocumentParser):
                             )
                         )
 
-        # Schemas
+        # Schemas — hang off the OpenApiSpec node.
         components = doc.get("components") or {}
         schemas = (components.get("schemas") or {}) if isinstance(components, dict) else {}
         if isinstance(schemas, dict):
@@ -183,7 +197,7 @@ class OpenApiParser(DocumentParser):
                 chunks.append(
                     self._schema_chunk(
                         schema_node_id=schema_node_id,
-                        doc_id=spec_id,
+                        doc_id=doc_id,
                         name=name,
                         schema=schema,
                         language=language,
@@ -202,11 +216,7 @@ class OpenApiParser(DocumentParser):
                             )
                         )
 
-        # The :OpenApiSpec node IS also the Document for the file. IngestService
-        # uses ``result.document`` as the parent for file-level edges; we've
-        # already wired Spec → Operation/Schema CONTAINS above so returning
-        # spec_node as both is consistent.
-        return ParseResult(chunks=chunks, document=spec_node, nodes=nodes, edges=edges)
+        return ParseResult(chunks=chunks, document=doc_node, nodes=nodes, edges=edges)
 
     # --- helpers ---
 
@@ -229,7 +239,7 @@ class OpenApiParser(DocumentParser):
 
     def _malformed(
         self,
-        spec_id: str,
+        doc_id: str,
         kb_name: str,
         rel_path: str,
         file_path: Path,
@@ -242,7 +252,7 @@ class OpenApiParser(DocumentParser):
         to the graph; the agent can ``graph_describe`` it and see the error.
         """
         document = GraphNode(
-            node_id=spec_id,
+            node_id=doc_id,
             label="Document",
             properties=self._doc_properties(kb_name, rel_path, file_path, language)
             | {

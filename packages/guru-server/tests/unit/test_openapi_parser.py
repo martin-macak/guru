@@ -75,13 +75,30 @@ def test_parse_emits_spec_node(tmp_path: Path, rule):
     _write_yaml(f, _minimal_spec())
     result = OpenApiParser().parse(f, rule, kb_name="kb", rel_path="openapi.yaml")
 
-    assert result.document.label == "OpenApiSpec"
+    # Document node satisfies IngestService.submit / upsert_document contract.
+    assert result.document.label == "Document"
     assert result.document.node_id == "kb::openapi.yaml"
-    assert result.document.properties["valid"] is True
-    assert result.document.properties["openapi_version"] == "3.0.3"
-    assert result.document.properties["title"] == "Demo API"
     assert result.document.properties["parser_name"] == "openapi"
     assert result.document.properties["language"] == "yaml"
+
+    # OpenApiSpec sub-artifact carries version/title metadata.
+    spec_nodes = [n for n in result.nodes if n.label == "OpenApiSpec"]
+    assert len(spec_nodes) == 1
+    spec_node = spec_nodes[0]
+    assert spec_node.node_id == "kb::openapi.yaml::spec"
+    assert spec_node.properties["valid"] is True
+    assert spec_node.properties["openapi_version"] == "3.0.3"
+    assert spec_node.properties["title"] == "Demo API"
+
+    # Document → OpenApiSpec CONTAINS edge must be present.
+    doc_to_spec = [
+        e
+        for e in result.edges
+        if e.rel_type == "CONTAINS"
+        and e.from_id == "kb::openapi.yaml"
+        and e.to_id == "kb::openapi.yaml::spec"
+    ]
+    assert len(doc_to_spec) == 1
 
 
 def test_parse_emits_one_operation_per_path_method(tmp_path: Path, rule):
@@ -113,9 +130,11 @@ def test_parse_emits_one_operation_per_path_method(tmp_path: Path, rule):
         "kb::openapi.yaml::/b::get",
         "kb::openapi.yaml::/b::delete",
     }
-    # CONTAINS from the spec to every operation
+    # CONTAINS from the OpenApiSpec sub-artifact to every operation
     contains = [
-        e for e in result.edges if e.rel_type == "CONTAINS" and e.from_id == "kb::openapi.yaml"
+        e
+        for e in result.edges
+        if e.rel_type == "CONTAINS" and e.from_id == "kb::openapi.yaml::spec"
     ]
     assert {e.to_id for e in contains} >= ids
 
@@ -145,7 +164,9 @@ def test_parse_emits_one_schema_per_components_schema(tmp_path: Path, rule):
     contains = [
         e
         for e in result.edges
-        if e.rel_type == "CONTAINS" and e.to_id.startswith("kb::openapi.yaml::components/schemas/")
+        if e.rel_type == "CONTAINS"
+        and e.from_id == "kb::openapi.yaml::spec"
+        and e.to_id.startswith("kb::openapi.yaml::components/schemas/")
     ]
     assert len(contains) == 3
 
@@ -287,7 +308,7 @@ def test_parse_supports_json(tmp_path: Path, rule):
     f.write_text(json.dumps(spec), encoding="utf-8")
     result = OpenApiParser().parse(f, rule, kb_name="kb", rel_path="openapi.json")
 
-    assert result.document.label == "OpenApiSpec"
+    assert result.document.label == "Document"
     assert result.document.properties["language"] == "json"
     ops = [n for n in result.nodes if n.label == "OpenApiOperation"]
     schemas = [n for n in result.nodes if n.label == "OpenApiSchema"]
@@ -327,8 +348,10 @@ def test_parse_supports_openapi_31(tmp_path: Path, rule):
     _write_yaml(f, spec)
     result = OpenApiParser().parse(f, rule, kb_name="kb", rel_path="openapi.yaml")
 
-    assert result.document.label == "OpenApiSpec"
-    assert result.document.properties["openapi_version"] == "3.1.0"
+    assert result.document.label == "Document"
+    spec_nodes = [n for n in result.nodes if n.label == "OpenApiSpec"]
+    assert len(spec_nodes) == 1
+    assert spec_nodes[0].properties["openapi_version"] == "3.1.0"
     ops = [n for n in result.nodes if n.label == "OpenApiOperation"]
     assert any(n.properties["path"] == "/things" for n in ops)
     schemas = [n for n in result.nodes if n.label == "OpenApiSchema"]
