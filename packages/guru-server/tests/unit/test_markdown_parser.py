@@ -55,3 +55,39 @@ def test_markdown_parser_chunks_carry_pointer_metadata(md_tmp: Path):
 
 def test_markdown_parser_name_property():
     assert MarkdownParser().name == "markdown"
+
+
+def test_markdown_parser_h2_merge_keeps_nodes_aligned_with_chunks(tmp_path: Path):
+    """Under split_level='h2', section_nodes must not contain phantom nodes
+    for sub-sections that were merged into their parents."""
+    from guru_core.types import ChunkingConfig
+
+    p = tmp_path / "nested.md"
+    p.write_text(
+        "# Title\n\n"
+        "## Section A\n\ncontent A\n\n"
+        "### Sub A1\n\nsub A1 content\n\n"
+        "### Sub A2\n\nsub A2 content\n\n"
+        "## Section B\n\ncontent B\n"
+    )
+    parser = MarkdownParser()
+    rule = Rule(
+        ruleName="default",
+        match=MatchConfig(glob="**/*.md"),
+        chunking=ChunkingConfig(split_level="h2"),
+    )
+    result = parser.parse(p, rule, kb_name="alpha")
+
+    section_breadcrumbs = {
+        sn.properties["breadcrumb"] for sn in result.nodes if sn.label == "MarkdownSection"
+    }
+    chunk_breadcrumbs = {c.header_breadcrumb for c in result.chunks}
+
+    # Every section node must have a matching chunk
+    assert section_breadcrumbs.issubset(chunk_breadcrumbs), (
+        f"phantom nodes: {section_breadcrumbs - chunk_breadcrumbs}"
+    )
+
+    # Sub-sections should be absent from both
+    assert not any("Sub A1" in b or "Sub A2" in b for b in section_breadcrumbs)
+    assert not any("Sub A1" in b or "Sub A2" in b for b in chunk_breadcrumbs)

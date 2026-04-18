@@ -124,6 +124,13 @@ class MarkdownParser(DocumentParser):
 
         if split_level == "h2":
             chunks = self._merge_h3_into_h2(chunks)
+            # After merging, level-3 chunks were absorbed into their level-2 parents.
+            # Filter section_nodes to match surviving chunks so the graph and vector
+            # index stay aligned — a section node must have a corresponding chunk.
+            surviving_breadcrumbs = {c.header_breadcrumb for c in chunks}
+            section_nodes = [
+                sn for sn in section_nodes if sn.properties["breadcrumb"] in surviving_breadcrumbs
+            ]
 
         self._assign_parent_ids(chunks)
 
