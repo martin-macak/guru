@@ -2,12 +2,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+
 from guru_cli.commands.graph import (
+    _client,
+    _handle_graph_errors,
     _render_kb_kv,
     _render_kbs_table,
     _render_links_table,
     _render_query_result,
 )
+from guru_core.graph_errors import GraphUnavailable
 from guru_core.graph_types import KbLink, KbNode, LinkKind, QueryResult
 
 
@@ -129,3 +134,34 @@ def test_render_query_result_with_rows():
     assert "k.name" in out
     assert "alpha" in out and "beta" in out
     assert "1.4 ms" in out or "1.40 ms" in out or "elapsed" in out
+
+
+# ---- Task 2: _client + _handle_graph_errors ----
+
+
+def test_handle_graph_errors_passes_successful_return():
+    async def ok():
+        return 42
+
+    assert _handle_graph_errors(ok()) == 42
+
+
+def test_handle_graph_errors_exits_1_on_graph_unavailable(capsys):
+    async def boom():
+        raise GraphUnavailable("socket missing: /tmp/x")
+
+    with pytest.raises(SystemExit) as exc:
+        _handle_graph_errors(boom())
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "daemon: unreachable" in err
+    assert "socket missing" in err
+
+
+def test_client_returns_graphclient_pointed_at_default_socket():
+    try:
+        c = _client()
+    except SystemExit:
+        pytest.skip("guru-graph not installed in this test environment")
+    assert c.auto_start is False
+    assert c.socket_path.endswith("graph.sock")

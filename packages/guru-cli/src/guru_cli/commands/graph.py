@@ -20,6 +20,7 @@ from typing import Any as _Any
 
 import click
 
+from guru_core.graph_errors import GraphUnavailable
 from guru_core.graph_types import KbLink, KbNode, QueryResult
 
 _ELLIPSIS = "\u2026"  # …
@@ -142,6 +143,35 @@ def _stringify(value: _Any) -> str:
     if isinstance(value, dict | list):
         return _json.dumps(value, default=str)
     return str(value)
+
+
+def _client():
+    """Construct a GraphClient pointed at the default socket.
+
+    Exits with code 2 if the guru-graph package isn't installed — matches
+    the existing ``guru graph status`` behaviour.
+    """
+    try:
+        from guru_core.graph_client import GraphClient
+        from guru_graph.config import GraphPaths
+    except ImportError:
+        click.echo("guru-graph is not installed.", err=True)
+        sys.exit(2)
+    paths = GraphPaths.default()
+    return GraphClient(socket_path=str(paths.socket), auto_start=False)
+
+
+def _handle_graph_errors(coro):
+    """Run *coro* and translate GraphUnavailable into click's exit 1.
+
+    Other exceptions propagate — unexpected failures should show a traceback
+    so bugs are visible.
+    """
+    try:
+        return asyncio.run(coro)
+    except GraphUnavailable as e:
+        click.echo(f"daemon: unreachable ({e})", err=True)
+        sys.exit(1)
 
 
 @click.group(name="graph")
