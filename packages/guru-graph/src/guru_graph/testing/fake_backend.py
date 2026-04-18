@@ -250,7 +250,11 @@ class FakeBackend:
         while queue:
             current = queue.pop(0)
             for edge in self._edges:
-                if edge.rel_type == "CONTAINS" and edge.from_id == current and edge.to_id not in seen:
+                if (
+                    edge.rel_type == "CONTAINS"
+                    and edge.from_id == current
+                    and edge.to_id not in seen
+                ):
                     seen.add(edge.to_id)
                     result.append(edge.to_id)
                     queue.append(edge.to_id)
@@ -312,7 +316,11 @@ class FakeBackend:
         while queue:
             current = queue.pop(0)
             for edge in self._edges:
-                if edge.rel_type == "CONTAINS" and edge.from_id == current and edge.to_id not in reachable:
+                if (
+                    edge.rel_type == "CONTAINS"
+                    and edge.from_id == current
+                    and edge.to_id not in reachable
+                ):
                     reachable.add(edge.to_id)
                     queue.append(edge.to_id)
         self._edges = [
@@ -478,7 +486,11 @@ class FakeBackend:
         return results
 
     def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]:
-        return [_annotation_to_dict(ann) for ann in self._annotations.values() if ann.target_id == node_id]
+        return [
+            _annotation_to_dict(ann)
+            for ann in self._annotations.values()
+            if ann.target_id == node_id
+        ]
 
     def list_relates_for(self, *, node_id: str, direction: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

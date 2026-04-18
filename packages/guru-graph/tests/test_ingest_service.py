@@ -19,7 +19,9 @@ def _payload(doc_id: str, sub_ids: list[str]) -> ParseResultPayload:
         )
         for node_id in sub_ids
     ]
-    edges = [GraphEdgePayload(from_id=doc_id, to_id=node_id, rel_type="CONTAINS") for node_id in sub_ids]
+    edges = [
+        GraphEdgePayload(from_id=doc_id, to_id=node_id, rel_type="CONTAINS") for node_id in sub_ids
+    ]
     return ParseResultPayload(chunks_count=len(sub_ids), document=doc, nodes=nodes, edges=edges)
 
 

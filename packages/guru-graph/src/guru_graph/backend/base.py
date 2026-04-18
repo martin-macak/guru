@@ -225,6 +225,7 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
 
     def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool: ...
 
+
 class GraphBackendRegistry:
     """Registry for available GraphBackend implementations.
 

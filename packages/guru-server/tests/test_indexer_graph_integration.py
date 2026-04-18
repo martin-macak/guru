@@ -82,7 +82,9 @@ async def test_graph_or_skip_swallows_graph_unavailable():
 
 
 @pytest.mark.asyncio
-async def test_indexer_submits_parse_result_to_graph_client(store, manifest, embedder, project_dir):
+async def test_indexer_submits_parse_result_to_graph_client(
+    store, manifest, embedder, project_dir
+):
     config = GuruConfig(
         version=1,
         rules=[Rule(rule_name="docs", match=MatchConfig(glob="docs/**/*.md"))],
