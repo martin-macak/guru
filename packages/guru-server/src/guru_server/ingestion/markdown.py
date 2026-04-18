@@ -9,7 +9,7 @@ from llama_index.core import Document
 from llama_index.core.node_parser import MarkdownNodeParser as LlamaMarkdownParser
 
 from guru_core.types import Rule
-from guru_server.ingestion.base import Chunk, DocumentParser
+from guru_server.ingestion.base import Chunk, DocumentParser, GraphEdge, GraphNode, ParseResult
 
 _HEADING_RE = re.compile(r"^#+\s+(.+)", re.MULTILINE)
 _CODE_BLOCK_RE = re.compile(r"```", re.MULTILINE)
@@ -46,10 +46,14 @@ def _sanitize_frontmatter(obj):
 
 
 class MarkdownParser(DocumentParser):
+    @property
+    def name(self) -> str:
+        return "markdown"
+
     def supports(self, file_path: Path) -> bool:
         return file_path.suffix.lower() in (".md", ".markdown")
 
-    def parse(self, file_path: Path, rule: Rule) -> list[Chunk]:
+    def parse(self, file_path: Path, rule: Rule, *, kb_name: str) -> ParseResult:
         raw = file_path.read_text(encoding="utf-8")
         post = frontmatter.loads(raw)
         fm = _sanitize_frontmatter(dict(post.metadata))
@@ -57,15 +61,33 @@ class MarkdownParser(DocumentParser):
         parser = LlamaMarkdownParser()
         nodes = parser.get_nodes_from_documents([doc])
 
-        # Determine chunking config
         split_level = None
         if rule.chunking is not None:
-            split_level = rule.chunking.split_level  # e.g. "h2" or "h3"
+            split_level = rule.chunking.split_level
+
+        document_id = f"{kb_name}::{file_path.as_posix()}"
+        document_node = GraphNode(
+            node_id=document_id,
+            label="Document",
+            properties={
+                "kb_name": kb_name,
+                "relative_path": file_path.as_posix(),
+                "absolute_path": str(file_path),
+                "language": "markdown",
+                "file_type": "doc",
+                "parser_name": "markdown",
+                "size_bytes": file_path.stat().st_size,
+            },
+        )
 
         chunks: list[Chunk] = []
+        section_nodes: list[GraphNode] = []
+        edges: list[GraphEdge] = []
+
         for i, node in enumerate(nodes):
             header_breadcrumb = self._extract_breadcrumb(node)
             chunk_level = self._infer_level(header_breadcrumb)
+            section_id = f"{document_id}::{header_breadcrumb}"
             chunk_id = hashlib.sha256(f"{file_path}:{header_breadcrumb}:{i}".encode()).hexdigest()[
                 :16
             ]
@@ -80,17 +102,49 @@ class MarkdownParser(DocumentParser):
                     labels=list(rule.labels),
                     chunk_id=chunk_id,
                     content_type=_detect_content_type(content),
+                    kind="markdown_section",
+                    language="markdown",
+                    artifact_qualname=section_id,
+                    parent_document_id=document_id,
+                )
+            )
+            section_nodes.append(
+                GraphNode(
+                    node_id=section_id,
+                    label="MarkdownSection",
+                    properties={
+                        "kb_name": kb_name,
+                        "breadcrumb": header_breadcrumb,
+                        "heading": header_breadcrumb.split(" > ")[-1],
+                        "level": chunk_level,
+                        "chunk_level": chunk_level,
+                    },
                 )
             )
 
-        # Apply split_level: if "h2", merge level-3 chunks into their parent level-2 chunk
         if split_level == "h2":
             chunks = self._merge_h3_into_h2(chunks)
 
-        # Wire up parent_chunk_id: level-3 chunks point to their enclosing level-2 chunk
         self._assign_parent_ids(chunks)
 
-        return chunks
+        # Wire CONTAINS edges: document -> top-level sections, section -> child
+        parent_stack: list[GraphNode] = [document_node]
+        for sn in section_nodes:
+            while parent_stack and (
+                parent_stack[-1].label == "MarkdownSection"
+                and parent_stack[-1].properties["level"] >= sn.properties["level"]
+            ):
+                parent_stack.pop()
+            parent = parent_stack[-1]
+            edges.append(GraphEdge(from_id=parent.node_id, to_id=sn.node_id, rel_type="CONTAINS"))
+            parent_stack.append(sn)
+
+        return ParseResult(
+            chunks=chunks,
+            document=document_node,
+            nodes=section_nodes,
+            edges=edges,
+        )
 
     def _merge_h3_into_h2(self, chunks: list[Chunk]) -> list[Chunk]:
         """Merge level-3 chunks into the preceding level-2 chunk."""
