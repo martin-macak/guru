@@ -1,5 +1,8 @@
 import { NavLink } from "react-router-dom";
 
+import { Inspector } from "../../features/inspector/Inspector";
+import { InvestigatePage } from "../../features/investigate/InvestigatePage";
+import { KnowledgeTree } from "../../features/knowledge-tree/KnowledgeTree";
 import { useWorkbench } from "../../lib/state/workbench";
 import { surfaceLabels, surfaceToPath, workbenchSurfaces } from "../../lib/state/url";
 import { cn } from "../../lib/utils";
@@ -10,6 +13,20 @@ const surfaceDescriptions = {
   query: "Run advanced read-only graph queries against the current knowledge base.",
   operate: "Check server health, graph availability, and indexing runtime status.",
 } as const;
+
+function SurfaceContent() {
+  const { surface } = useWorkbench();
+
+  if (surface === "investigate") {
+    return <InvestigatePage />;
+  }
+
+  return (
+    <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50/70 p-5 text-sm text-slate-600">
+      {surfaceDescriptions[surface]}
+    </div>
+  );
+}
 
 export function AppShell() {
   const { boot, surface } = useWorkbench();
@@ -61,29 +78,23 @@ export function AppShell() {
                 </NavLink>
               ))}
             </nav>
+
+            <div className="mt-6 border-t border-slate-200 pt-6">
+              <KnowledgeTree />
+            </div>
           </aside>
 
           <main className="rounded-[2rem] border border-white/70 bg-white/85 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-md">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Active surface</p>
             <h2 className="mt-3 text-4xl font-semibold tracking-[-0.05em]">{surfaceLabels[surface]}</h2>
             <p className="mt-3 max-w-2xl text-base text-slate-600">{surfaceDescriptions[surface]}</p>
+            <div className="mt-6">
+              <SurfaceContent />
+            </div>
           </main>
 
           <aside className="rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-md">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Inspector</p>
-            <div className="mt-4 space-y-4 text-sm text-slate-600">
-              <section>
-                <h3 className="font-medium text-slate-900">Selection</h3>
-                <p className="mt-1">Boot handshake is loaded. Routing is driving the active surface.</p>
-              </section>
-              <section>
-                <h3 className="font-medium text-slate-900">Status</h3>
-                <p className="mt-1">
-                  Web {boot.web.enabled ? "enabled" : "disabled"} ·{" "}
-                  {boot.web.available ? "available" : boot.web.reason ?? "unavailable"}
-                </p>
-              </section>
-            </div>
+            <Inspector />
           </aside>
         </div>
       </div>
