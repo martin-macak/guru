@@ -84,7 +84,15 @@ def resolve_config(
         return global_cfg
 
     merged_rules = merge_rules(global_cfg.rules, local_cfg.rules)
-    return GuruConfig(version=1, rules=merged_rules)
+    # Local fields win over global; global provides defaults for any field
+    # the local config didn't set. Applies to `name` and `graph` today, and
+    # to any future top-level field without touching this call site.
+    return GuruConfig(
+        version=1,
+        rules=merged_rules,
+        name=local_cfg.name if local_cfg.name is not None else global_cfg.name,
+        graph=local_cfg.graph if local_cfg.graph is not None else global_cfg.graph,
+    )
 
 
 def federation_dir() -> Path:
