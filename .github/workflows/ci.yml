@@ -21,6 +21,7 @@ jobs:
       guru-mcp: ${{ steps.filter.outputs.guru-mcp }}
       guru-cli: ${{ steps.filter.outputs.guru-cli }}
       guru-graph: ${{ steps.filter.outputs.guru-graph }}
+      guru-web: ${{ steps.filter.outputs.guru-web }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -37,6 +38,8 @@ jobs:
               - 'packages/guru-cli/**'
             guru-graph:
               - 'packages/guru-graph/**'
+            guru-web:
+              - 'packages/guru-web/**'
 
   unit-tests:
     needs: detect-changes
@@ -149,3 +152,55 @@ jobs:
         run: |
           uv run behave tests/e2e/features/graph_plugin.feature
           uv run behave tests/e2e/features/graph_cli_reads.feature
+
+  # ---------------------------------------------------------------------------
+  # Web GUI — fast checks (typecheck + unit tests)
+  # Runs whenever packages/guru-web/** changes
+  # ---------------------------------------------------------------------------
+  web-checks:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.guru-web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/guru-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: packages/guru-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Web GUI — slow build (production Vite build)
+  # On-demand: add label "require-web-build" to trigger
+  # ---------------------------------------------------------------------------
+  web-build:
+    if: contains(github.event.pull_request.labels.*.name, 'require-web-build')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/guru-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: packages/guru-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Production build
+        run: npx vite build
