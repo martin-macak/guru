@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "name": "polyglot",
+  "rules": [
+    { "ruleName": "code", "match": { "glob": "src/**/*.py" } },
+    { "ruleName": "docs", "match": { "glob": "docs/**/*.md" } },
+    { "ruleName": "api", "match": { "glob": "api/**/*.yaml" } }
+  ]
+}

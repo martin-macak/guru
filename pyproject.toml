@@ -68,6 +68,8 @@ dev = [
 target-version = "py313"
 line-length = 99
 src = ["packages/guru-core/src", "packages/guru-server/src", "packages/guru-mcp/src", "packages/guru-cli/src", "packages/guru-graph/src"]
+extend-exclude = ["tests/e2e/fixtures"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
