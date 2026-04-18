@@ -672,6 +672,7 @@ def before_feature(context, feature):
         or "graph_cli_reads" in feature.filename
         or "annotations_and_curation" in feature.filename
         or "orphan_triage" in feature.filename
+        or "artifact_links" in feature.filename
     ):
         import os as _os
         import tempfile as _tempfile
@@ -786,6 +787,7 @@ def after_feature(context, feature):
         or "graph_cli_reads" in feature.filename
         or "annotations_and_curation" in feature.filename
         or "orphan_triage" in feature.filename
+        or "artifact_links" in feature.filename
     ):
         import contextlib as _ctx
         import os as _os
