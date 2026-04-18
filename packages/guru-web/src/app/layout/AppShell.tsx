@@ -28,6 +28,29 @@ function SurfaceContent() {
   );
 }
 
+function RightRail() {
+  const { boot, surface } = useWorkbench();
+
+  if (surface === "investigate") {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">Status</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Investigate keeps the live inspector in the center pane so results and selection stay aligned.
+          </p>
+        </div>
+        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/90 p-4 text-sm text-slate-700">
+          Web {boot.web.enabled ? "enabled" : "disabled"} ·{" "}
+          {boot.web.available ? "available" : boot.web.reason ?? "unavailable"}
+        </div>
+      </div>
+    );
+  }
+
+  return <Inspector />;
+}
+
 export function AppShell() {
   const { boot, surface } = useWorkbench();
 
@@ -94,7 +117,7 @@ export function AppShell() {
           </main>
 
           <aside className="rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-md">
-            <Inspector />
+            <RightRail />
           </aside>
         </div>
       </div>

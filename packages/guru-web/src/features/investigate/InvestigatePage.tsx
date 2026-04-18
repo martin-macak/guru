@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { Inspector } from "../inspector/Inspector";
 import { filterInvestigateResults, useWorkbench } from "../../lib/state/workbench";
 import { cn } from "../../lib/utils";
 
@@ -62,13 +63,7 @@ export function InvestigatePage() {
         </section>
 
         <aside className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
-          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Inspector</h3>
-          <p className="mt-3 text-sm text-slate-600">
-            Select a document or artifact to inspect its metadata.
-          </p>
-          <p className="mt-4 text-xs uppercase tracking-[0.18em] text-slate-500">
-            Shared selection keeps the tree, result list, and inspector aligned.
-          </p>
+          <Inspector />
         </aside>
       </div>
     </section>

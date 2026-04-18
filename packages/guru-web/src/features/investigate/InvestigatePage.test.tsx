@@ -40,7 +40,8 @@ test("keeps knowledge tree and inspector in sync with shared selection", () => {
   renderWithWorkbench(<AppShell />);
 
   expect(screen.getByRole("heading", { name: "Knowledge Tree" })).toBeInTheDocument();
-  expect(screen.getAllByRole("heading", { name: "Inspector" })).toHaveLength(2);
+  expect(screen.getAllByRole("heading", { name: "Inspector" })).toHaveLength(1);
+  expect(screen.getByText("No current selection.")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /^Artifact Graph Plan document$/i }));
   expect(screen.getByText("Document")).toBeInTheDocument();
