@@ -112,3 +112,25 @@ packages/
 - The graph is strictly an augmentation. When the graph is disabled, unreachable, or failing, guru-server MUST continue to serve the user with reduced accuracy; graph failures never propagate to the end user (`graph_or_skip` in guru-server swallows all `GraphUnavailable`).
 - Clients never talk to Neo4j directly — only to `guru-graph` over UDS. Protocol and schema versions are negotiated per `docs/superpowers/specs/2026-04-17-graph-plugin-design.md` §Schema, versioning & compatibility.
 - Read-only CLI debugging commands are available: `guru graph kbs`, `guru graph kb <name>`, `guru graph links <name>`, `guru graph query '<cypher>'`. Writes are deliberately **not** exposed via CLI — mutations go through the HTTP API or `GraphClient` only. See `docs/superpowers/specs/2026-04-18-graph-readonly-cli-design.md`.
+
+## Artifact Graph (from PR-2..PR-8)
+
+- Every indexed file produces both a LanceDB chunk set and a `(:Document)`
+  graph node when the graph is enabled. Graph-disabled mode discards graph
+  facts; chunks still flow to LanceDB.
+- Document parsers emit a single `ParseResult` per file carrying chunks and
+  (`Document`, sub-artifact nodes, edges). Dispatch is always-on by
+  `supports()`; no per-parser config flag.
+- MCP tools are read-only by default. Agent-writable knowledge-base
+  operations — `graph_annotate`, `graph_link`, `graph_unlink`,
+  `graph_delete_annotation`, `graph_reattach_orphan` — are the explicit
+  exception. Any further write surface requires a constitution amendment.
+- Every graph-agnostic operation must work identically whether the graph is
+  enabled, disabled, unreachable, or crashed. `search()`, `get_document()`,
+  `index_status()`, `guru index`, `guru search`, etc. never change behaviour
+  based on graph state.
+
+See `docs/superpowers/specs/2026-04-18-artifact-graph-knowledge-base-design.md`
+for the full subsystem design and
+`docs/superpowers/plans/2026-04-18-artifact-graph-knowledge-base.md` for the
+shipped implementation plan.

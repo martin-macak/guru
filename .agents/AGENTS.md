@@ -136,6 +136,9 @@ Always follow naming conventions for GitHub PRs, Issues, and git branches:
 - `pre-commit install` to set up git hooks after cloning
 - Claude Code hooks (`.claude/settings.json`) auto-run `ruff check --fix` + `ruff format`
   on every Python file after Edit/Write — no manual formatting needed
+- Agents working inside a guru-managed project should use the
+  `guru-knowledge-base` skill shipped by `guru init` at
+  `.claude/skills/guru-knowledge-base/`.
 
 ## Distribution
 
