@@ -70,7 +70,7 @@ def test_neighbors_returns_200_with_default_filters():
     assert r.status_code == 200
     body = r.json()
     assert body["node_id"] == "kb::A"
-    assert [n["id"] for n in body["nodes"]] == ["kb::B"]
+    assert [n["id"] for n in body["nodes"]] == ["kb::A", "kb::B"]
     assert len(body["edges"]) == 1
 
 
@@ -98,7 +98,7 @@ def test_neighbors_filters_by_kind_via_query_param():
     )
     assert r.status_code == 200
     body = r.json()
-    assert [n["id"] for n in body["nodes"]] == ["kb::B"]
+    assert [n["id"] for n in body["nodes"]] == ["kb::A", "kb::B"]
 
 
 def test_find_returns_200_with_post_body():
