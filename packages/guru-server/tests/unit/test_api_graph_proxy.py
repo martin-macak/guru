@@ -437,6 +437,164 @@ def test_query_forces_read_only_true_regardless_of_body():
     }
 
 
+# --- graph_disabled (client is None) for the remaining 5 routes ---
+
+
+def test_delete_annotation_returns_graph_disabled_when_no_client():
+    tc = _build_app(None)
+    resp = tc.delete("/graph/annotations/a1")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_create_link_returns_graph_disabled_when_no_client():
+    tc = _build_app(None)
+    resp = tc.post(
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports", "metadata": {}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_delete_link_returns_graph_disabled_when_no_client():
+    tc = _build_app(None)
+    resp = tc.request(
+        "DELETE",
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_orphans_returns_graph_disabled_when_no_client():
+    tc = _build_app(None)
+    resp = tc.get("/graph/orphans")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_reattach_orphan_returns_graph_disabled_when_no_client():
+    tc = _build_app(None)
+    resp = tc.post("/graph/orphans/a1/reattach", json={"new_node_id": "n2"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+# --- GraphUnavailable swallow tests for the 8 remaining routes ---
+
+
+def test_find_swallows_graph_unavailable():
+    client = _make_client()
+    client.find_artifacts.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.post("/graph/find", json={"name": "X"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_create_annotation_swallows_graph_unavailable():
+    client = _make_client()
+    client.create_annotation.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.post(
+        "/graph/annotations",
+        json={"node_id": "n1", "kind": "note", "body": "hi", "tags": []},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_delete_annotation_swallows_graph_unavailable():
+    client = _make_client()
+    client.delete_annotation.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.delete("/graph/annotations/a1")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_create_link_swallows_graph_unavailable():
+    client = _make_client()
+    client.create_link.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.post(
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports", "metadata": {}},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_delete_link_swallows_graph_unavailable():
+    client = _make_client()
+    client.delete_link.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.request(
+        "DELETE",
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_list_orphans_swallows_graph_unavailable():
+    client = _make_client()
+    client.list_orphans.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.get("/graph/orphans")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_reattach_orphan_swallows_graph_unavailable():
+    client = _make_client()
+    client.reattach_orphan.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.post("/graph/orphans/a1/reattach", json={"new_node_id": "n2"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+def test_query_swallows_graph_unavailable():
+    client = _make_client()
+    client.graph_query.side_effect = GraphUnavailable("simulated")
+    tc = _build_app(client)
+    resp = tc.post("/graph/query", json={"cypher": "RETURN 1", "params": {}})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "graph_disabled"
+
+
+# --- create_link author-header precedence ---
+
+
+def test_create_link_falls_back_to_x_guru_mcp_client_header():
+    client = _make_client()
+    client.create_link.return_value = _artifact_link()
+    tc = _build_app(client)
+    resp = tc.post(
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports", "metadata": {}},
+        headers={"x-guru-mcp-client": "claude-code"},
+    )
+    assert resp.status_code == 201
+    assert client.create_link.call_args.kwargs["author"] == "agent:claude-code"
+
+
+def test_create_link_defaults_to_user_unknown():
+    client = _make_client()
+    client.create_link.return_value = _artifact_link()
+    tc = _build_app(client)
+    resp = tc.post(
+        "/graph/links",
+        json={"from_id": "n1", "to_id": "n2", "kind": "imports", "metadata": {}},
+    )
+    assert resp.status_code == 201
+    assert client.create_link.call_args.kwargs["author"] == "user:unknown"
+
+
 # --- pytest discovery sanity (smoke) ---
 
 
