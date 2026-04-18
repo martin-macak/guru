@@ -755,6 +755,24 @@ class Neo4jBackend:
             ).single()
             return bool(rec and rec["c"])
 
+    def get_annotation(self, *, annotation_id: str) -> dict[str, Any] | None:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (a:Annotation {id: $id}) "
+                "OPTIONAL MATCH (a)-[:ANNOTATES]->(t) "
+                "RETURN a.id AS annotation_id, "
+                "       t.id AS target_id, "
+                "       labels(t)[0] AS target_label, "
+                "       a.kind AS kind, a.body AS body, a.tags AS tags, "
+                "       a.author AS author, "
+                "       a.created_at AS created_at, a.updated_at AS updated_at, "
+                "       a.target_snapshot_json AS target_snapshot_json",
+                parameters={"id": annotation_id},
+            ).single()
+            if rec is None:
+                return None
+            return _annotation_row_to_dict(rec)
+
     def list_orphans(self, *, limit: int) -> list[dict[str, Any]]:
         with self._driver.session() as s:
             rs = s.run(
