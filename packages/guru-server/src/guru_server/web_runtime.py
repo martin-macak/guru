@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 import webbrowser
 from dataclasses import dataclass
@@ -15,6 +16,35 @@ class WebRuntime:
     assets_dir: Path | None
     reason: str | None
     auto_open: bool
+
+
+def _has_built_assets(assets_dir: Path) -> bool:
+    return assets_dir.is_dir() and (assets_dir / "index.html").is_file()
+
+
+def resolve_web_assets_dir(project_root: Path) -> Path:
+    candidates: list[Path] = []
+
+    override = os.environ.get("GURU_WEB_DIST_DIR")
+    if override:
+        candidates.append(Path(override).expanduser())
+
+    project_dist = project_root / "packages" / "guru-web" / "dist"
+    workspace_dist = Path(__file__).resolve().parents[4] / "packages" / "guru-web" / "dist"
+    for candidate in (project_dist, workspace_dist):
+        if candidate not in candidates:
+            candidates.append(candidate)
+
+    fallback: Path | None = None
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        fallback = fallback or resolved
+        if _has_built_assets(resolved):
+            return resolved
+
+    if fallback is None:
+        raise RuntimeError("web asset resolution produced no candidates")
+    return fallback
 
 
 def _pick_free_port() -> int:
@@ -58,7 +88,6 @@ def build_web_runtime(
     enabled: bool,
     auto_open: bool = False,
 ) -> WebRuntime:
-    _ = project_root
     if not enabled:
         return WebRuntime(
             enabled=False,
@@ -71,7 +100,7 @@ def build_web_runtime(
         )
 
     assets_dir = assets_dir.resolve()
-    if not assets_dir.is_dir():
+    if not _has_built_assets(assets_dir):
         return WebRuntime(
             enabled=True,
             available=False,

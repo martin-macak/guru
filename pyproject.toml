@@ -49,6 +49,7 @@ guru-graph = { workspace = true }
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 addopts = "--import-mode=importlib -m 'not slow' --timeout=60 --timeout-method=thread"
+norecursedirs = ["packages/guru-web/node_modules", "packages/guru-web/dist"]
 markers = [
     "slow: end-to-end tests that start a real server (deselected by default, run with: -m slow)",
     "real_neo4j: tests that require a running Neo4j (skipped unless GURU_REAL_NEO4J=1)",

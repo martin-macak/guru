@@ -22,7 +22,7 @@ from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
 from guru_server.storage import VectorStore
-from guru_server.web_runtime import build_web_runtime
+from guru_server.web_runtime import build_web_runtime, resolve_web_assets_dir
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +214,7 @@ def create_app(
     web_config = resolve_web_config(app.state.config)
     app.state.web_runtime = build_web_runtime(
         project_root=Path(app.state.project_root),
-        assets_dir=Path(app.state.project_root) / "packages" / "guru-web" / "dist",
+        assets_dir=resolve_web_assets_dir(Path(app.state.project_root)),
         enabled=bool(web_config.enabled),
         auto_open=bool(web_config.auto_open),
     )
