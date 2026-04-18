@@ -1,5 +1,6 @@
 import { NavLink } from "react-router-dom";
 
+import { GraphPage } from "../../features/graph/GraphPage";
 import { Inspector } from "../../features/inspector/Inspector";
 import { InvestigatePage } from "../../features/investigate/InvestigatePage";
 import { KnowledgeTree } from "../../features/knowledge-tree/KnowledgeTree";
@@ -31,11 +32,7 @@ function SurfaceContent() {
     return <OperatePage runtime={boot} />;
   }
 
-  return (
-    <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50/70 p-5 text-sm text-slate-600">
-      {surfaceDescriptions[surface]}
-    </div>
-  );
+  return <GraphPage />;
 }
 
 function RightRail() {

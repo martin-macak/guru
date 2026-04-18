@@ -17,22 +17,78 @@ export type BootPayload = {
 
 export type RuntimeStatusSnapshot = Pick<BootPayload, "project" | "web" | "graph">;
 
-function resolveBootUrl(): string {
+export type GraphArtifactNode = {
+  id: string;
+  label: string;
+  properties: Record<string, unknown>;
+};
+
+export type GraphArtifactEdge = {
+  from_id: string;
+  to_id: string;
+  rel_type: "CONTAINS" | "RELATES";
+  kind: string | null;
+  properties: Record<string, unknown>;
+};
+
+export type GraphNeighborsPayload = {
+  node_id: string;
+  nodes: GraphArtifactNode[];
+  edges: GraphArtifactEdge[];
+};
+
+export type GraphDisabledPayload = {
+  status: "graph_disabled";
+};
+
+function resolveApiUrl(path: string): string {
   const apiBaseUrl = import.meta.env.VITE_GURU_API_BASE_URL?.trim();
 
   if (!apiBaseUrl) {
-    return "/web/boot";
+    return path;
   }
 
-  return new URL("/web/boot", `${apiBaseUrl.replace(/\/+$/, "")}/`).toString();
+  return new URL(path, `${apiBaseUrl.replace(/\/+$/, "")}/`).toString();
+}
+
+export function isGraphDisabled(
+  payload: GraphNeighborsPayload | GraphDisabledPayload,
+): payload is GraphDisabledPayload {
+  return "status" in payload && payload.status === "graph_disabled";
 }
 
 export async function getBoot(): Promise<BootPayload> {
-  const response = await fetch(resolveBootUrl());
+  const response = await fetch(resolveApiUrl("/web/boot"));
 
   if (!response.ok) {
     throw new Error(`boot failed: ${response.status}`);
   }
 
   return (await response.json()) as BootPayload;
+}
+
+export async function getGraphNeighbors({
+  nodeId,
+  depth = 1,
+  direction = "both",
+  relType = "both",
+  limit = 50,
+}: {
+  nodeId: string;
+  depth?: number;
+  direction?: "in" | "out" | "both";
+  relType?: "CONTAINS" | "RELATES" | "both";
+  limit?: number;
+}): Promise<GraphNeighborsPayload | GraphDisabledPayload> {
+  const response = await fetch(
+    resolveApiUrl(
+      `/graph/neighbors/${encodeURIComponent(nodeId)}?direction=${direction}&rel_type=${relType}&depth=${depth}&limit=${limit}`,
+    ),
+  );
+
+  if (!response.ok) {
+    throw new Error(`graph neighbors failed: ${response.status}`);
+  }
+
+  return (await response.json()) as GraphNeighborsPayload | GraphDisabledPayload;
 }
