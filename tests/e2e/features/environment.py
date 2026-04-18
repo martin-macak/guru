@@ -6,10 +6,12 @@ import json
 import os
 import shutil
 import subprocess
+import sys as _sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+from pathlib import Path as _Path
 
 import uvicorn
 
@@ -19,6 +21,9 @@ from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.federation import FederationRegistry
 from guru_server.storage import VectorStore
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import capabilities
 
 # ---------------------------------------------------------------------------
 # Project directory builders
@@ -571,6 +576,38 @@ def _trigger_and_wait_index(project_dir: Path, timeout: float = 30.0) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def before_all(context):
+    """Start every selected capability (neo4j/ollama/...) once per behave run.
+
+    Capability selection comes from ``behave -D capabilities=…`` or the
+    ``GURU_E2E_CAPABILITIES`` env var. See ``capabilities.py``.
+    """
+    capabilities.activate(context)
+
+
+def after_all(context):
+    """Stop capabilities we started; unset env vars we added."""
+    capabilities.deactivate(context)
+
+
+def before_tag(context, tag):
+    """Skip any ``@real_<cap>``-tagged scenario/feature whose cap is off.
+
+    Fires for both feature-level and scenario-level tags. When no capability
+    for ``tag`` is active, we mark the current scenario (or feature, if this
+    is a feature-level tag) as skipped with a clear reason.
+    """
+    reason = capabilities.check_tag_gate(context, tag)
+    if reason is None:
+        return
+    scenario = getattr(context, "scenario", None)
+    feature = getattr(context, "feature", None)
+    if scenario is not None:
+        scenario.skip(reason)
+    elif feature is not None:
+        feature.skip(reason)
+
+
 def before_scenario(context, scenario):
     """Auto-skip scenarios that are specified but rely on later-PR machinery.
 
@@ -603,6 +640,10 @@ def before_feature(context, feature):
     # from a Background step and start their own server. We just need to
     # isolate the embedding cache and auto-skip @real_neo4j when the env
     # doesn't provide a Neo4j.
+    # Per-feature capability reset (e.g. Neo4j wipe) so features don't bleed
+    # state between each other when a capability is active.
+    capabilities.wipe_enabled(context)
+
     if "artifact_indexing" in feature.filename or "graph_optional" in feature.filename:
         cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
         os.close(cache_fd)
@@ -619,13 +660,6 @@ def before_feature(context, feature):
         os.environ["XDG_STATE_HOME"] = os.path.join(context.graph_tmp, "state")
         os.environ["XDG_RUNTIME_DIR"] = os.path.join(context.graph_tmp, "run")
         os.environ["GURU_GRAPH_HOME"] = os.path.join(context.graph_tmp, "home")
-
-        if "real_neo4j" in feature.tags and os.environ.get("GURU_REAL_NEO4J") != "1":
-            feature.skip("GURU_REAL_NEO4J=1 not set")
-            return
-        for scenario in feature.scenarios:
-            if "real_neo4j" in scenario.tags and os.environ.get("GURU_REAL_NEO4J") != "1":
-                scenario.skip("GURU_REAL_NEO4J=1 not set")
         return
 
     # Graph plugin scenarios are self-contained — they use GraphClient or a
@@ -654,14 +688,6 @@ def before_feature(context, feature):
         # Support) with a single writable directory so local BDD works even
         # when the platform default isn't writable under the test sandbox.
         _os.environ["GURU_GRAPH_HOME"] = _os.path.join(context.graph_tmp, "home")
-
-        # Auto-skip @real_neo4j scenarios unless GURU_REAL_NEO4J=1.
-        if "real_neo4j" in feature.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
-            feature.skip("GURU_REAL_NEO4J=1 not set")
-            return
-        for scenario in feature.scenarios:
-            if "real_neo4j" in scenario.tags and _os.environ.get("GURU_REAL_NEO4J") != "1":
-                scenario.skip("GURU_REAL_NEO4J=1 not set")
         return
 
     # Isolate the embedding cache per feature so scenarios don't pollute each other
