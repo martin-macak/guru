@@ -290,6 +290,92 @@ def step_lancedb_has_chunks(context, rel_path, kind):
 
 
 # ---------------------------------------------------------------------------
+# THEN — Python parser structural assertions (PR-7)
+# ---------------------------------------------------------------------------
+# These two steps use the regex matcher because their step text contains
+# Cypher-like braces (``{kind:"imports"}``) that the default `parse` matcher
+# misinterprets as typed format specs.
+
+from behave import use_step_matcher  # noqa: E402
+
+use_step_matcher("re")
+
+
+@then(
+    r'\(:Module "(?P<src_qualname>[^"]+)"\)-\[:RELATES \{kind:"imports"\}\]->'
+    r'\(:Module "(?P<dst_qualname>[^"]+)"\) exists'
+)
+def step_module_imports_module(context, src_qualname, dst_qualname):
+    """Assert (:Module src)-[:RELATES{kind:'imports'}]->(:Module dst) exists.
+
+    Matches by ``qualname`` *suffix* so the assertion stays independent of the
+    package root prefix the project happens to use (the polyglot fixture lives
+    under ``src/pkg/``, which means qualnames are ``src.pkg.auth`` etc.).
+    """
+    driver = _neo4j_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (a:Module)-[r:RELATES {kind: 'imports'}]->(b:Module)
+                WHERE a.qualname ENDS WITH $src AND b.qualname ENDS WITH $dst
+                RETURN count(r) AS n
+                """,
+                src=src_qualname,
+                dst=dst_qualname,
+            )
+            record = result.single()
+            n = record["n"] if record else 0
+            assert n >= 1, (
+                f"no (:Module {{qualname ENDS WITH {src_qualname!r}}})"
+                f"-[:RELATES {{kind:'imports'}}]->"
+                f"(:Module {{qualname ENDS WITH {dst_qualname!r}}}) edge (count={n})"
+            )
+    finally:
+        driver.close()
+
+
+@then(
+    r"for every `class Derived\(Base\):`, "
+    r'\(:Class\)-\[:RELATES \{kind:"inherits_from"\}\]-> exists'
+)
+def step_inherits_from_present(context):
+    """Assert at least one (:Class)-[:RELATES{kind:'inherits_from'}]->(:Class) edge.
+
+    The polyglot fixture has exactly one such pair: ``UserService`` inherits
+    from ``UserBase`` (both inside ``pkg.services.user``). We match by
+    qualname suffix so the assertion stays independent of the package-root
+    prefix.
+    """
+    driver = _neo4j_driver()
+    try:
+        with driver.session() as session:
+            result = session.run(
+                """
+                MATCH (d:Class)-[r:RELATES {kind: 'inherits_from'}]->(b:Class)
+                WHERE d.qualname ENDS WITH 'pkg.services.user.UserService'
+                  AND b.qualname ENDS WITH 'pkg.services.user.UserBase'
+                RETURN count(r) AS n
+                """,
+            )
+            record = result.single()
+            n = record["n"] if record else 0
+            assert n >= 1, (
+                "expected (:Class qualname~UserService)"
+                "-[:RELATES {kind:'inherits_from'}]->"
+                "(:Class qualname~UserBase) edge (count="
+                f"{n})"
+            )
+    finally:
+        driver.close()
+
+
+# Restore the default matcher so the remaining steps in this file continue
+# to use the parse-style ``{name}`` placeholders.
+use_step_matcher("parse")
+
+
+# ---------------------------------------------------------------------------
 # Fallback "I run 'guru X'" via CLI subprocess (not used by the PR-2 subset
 # but handy for future scenarios).
 # ---------------------------------------------------------------------------
