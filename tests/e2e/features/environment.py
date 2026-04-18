@@ -614,8 +614,10 @@ def before_feature(context, feature):
     if "federation" in feature.tags:
         # Federation tests manage their own servers via step definitions.
         # Create a shared federation directory and a shared embedder.
-        context.fed_dir = Path(tempfile.mkdtemp(prefix="guru-fed-"))
-        context.fed_base_dir = Path(tempfile.mkdtemp(prefix="guru-fed-projects-"))
+        # Short paths under /tmp — macOS caps AF_UNIX paths at 104 bytes, and
+        # the default TMPDIR (/var/folders/…) alone eats ~53 of those.
+        context.fed_dir = Path(tempfile.mkdtemp(prefix="g_fed_", dir="/tmp"))
+        context.fed_base_dir = Path(tempfile.mkdtemp(prefix="g_fedp_", dir="/tmp"))
         context.embedder = _make_fake_embedder()
         context.servers = {}
         context.registries = {}
