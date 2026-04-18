@@ -4,6 +4,14 @@ import { surfaceFromPathname } from "../lib/state/url";
 import { AppProviders } from "./providers";
 import { AppRouter } from "./router";
 
+function currentSurfacePath() {
+  if (window.location.hash.startsWith("#/")) {
+    return window.location.hash.slice(1);
+  }
+
+  return window.location.pathname;
+}
+
 function AppBody() {
   const boot = useBootQuery();
 
@@ -16,7 +24,7 @@ function AppBody() {
   }
 
   return (
-    <WorkbenchProvider boot={boot.data} initialSurface={surfaceFromPathname(window.location.pathname)}>
+    <WorkbenchProvider boot={boot.data} initialSurface={surfaceFromPathname(currentSurfacePath())}>
       <AppRouter />
     </WorkbenchProvider>
   );

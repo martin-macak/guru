@@ -3,12 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./layout/AppShell";
 import { useWorkbench } from "../lib/state/workbench";
-import {
-  surfaceFromPathname,
-  surfaceToPath,
-  type WorkbenchSurface,
-  workbenchSurfaces,
-} from "../lib/state/url";
+import { surfaceToPath, type WorkbenchSurface, workbenchSurfaces } from "../lib/state/url";
 
 type SurfaceRouteProps = {
   surface: WorkbenchSurface;
@@ -25,7 +20,7 @@ function SurfaceRoute({ surface }: SurfaceRouteProps) {
 }
 
 export function AppRouter() {
-  const defaultSurface = surfaceFromPathname(window.location.pathname);
+  const defaultSurface = "investigate";
 
   return (
     <Routes>

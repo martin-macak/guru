@@ -37,15 +37,16 @@ describe("App shell", () => {
     expect(screen.getByText("guru")).toBeInTheDocument();
   });
 
-  test("uses the current URL to choose the graph shell surface", async () => {
-    window.history.replaceState({}, "", "/graph");
+  test("uses the current hash route to choose the graph shell surface", async () => {
+    window.history.replaceState({}, "", "/#/graph");
 
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Graph" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Graph" })).toHaveAttribute("href", "#/graph");
 
     await waitFor(() => {
-      expect(window.location.pathname).toBe("/graph");
+      expect(window.location.hash).toBe("#/graph");
     });
   });
 });
