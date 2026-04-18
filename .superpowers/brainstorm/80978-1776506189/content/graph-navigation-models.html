@@ -1,0 +1,184 @@
+<h2>Which Graph Navigation Model Fits Guru TUI v1?</h2>
+<p class="subtitle">Same shell, different center-pane behavior. Focus on keyboard ergonomics, readability, and whether this still feels good in a terminal.</p>
+
+<div class="cards">
+  <div class="card" data-choice="selection-centered" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">A. Selection-Centered Subgraph</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Guru TUI | Server: healthy | KB: polyglot | Jobs: idle</div>
+          <div style="display:flex; gap:12px; min-height:360px;">
+            <div class="mock-sidebar" style="width:24%;">
+              Knowledge Tree
+              <br><br>
+              ▾ polyglot
+              <br>&nbsp;&nbsp;▾ pkg.services
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;UserService
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;BillingService
+              <br>&nbsp;&nbsp;▾ api
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;GET /users
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;POST /users
+              <br>&nbsp;&nbsp;README
+            </div>
+            <div class="mock-content" style="width:50%;">
+              Graph View
+              <br><br>
+              <div style="font-family:monospace; line-height:1.3; white-space:pre; font-size:13px;">
+                     [Module: pkg.services]
+                            |
+                        CONTAINS
+                            |
+                  [Class: UserService]
+                   /        |         \
+            CALLS /    DOCUMENTS      \ REFERENCES
+                 /         |            \
+          [fn get()]   [POST /users]   [Schema User]
+              </div>
+              <div style="margin-top:10px;">Focused node: <strong>UserService</strong> | Depth: 1 | Keys: <code>h/j/k/l</code> move focus, <code>Enter</code> expand, <code>[ ]</code> depth</div>
+            </div>
+            <div class="mock-content" style="width:26%;">
+              Detail
+              <br><br>
+              Node: Class
+              <br>Name: UserService
+              <br>Qualname: polyglot::pkg.services.user.UserService
+              <br>Neighbors: 6
+              <br>File: pkg/services/user.py
+              <br><br>
+              Search / command
+              <br><input class="mock-input" value="userservice" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Selection-Centered Subgraph</h3>
+      <p>The graph stays bounded around the focused node. Movement is semantic, not spatial: changing focus reshapes the local neighborhood.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Terminal-friendly and readable</li><li>Good fit for keyboard traversal</li><li>Keeps investigation flow centered on one artifact</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Not a true canvas</li><li>Large topologies are seen incrementally</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="free-panning" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">B. Free-Panning Graph Canvas</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Guru TUI | Server: healthy | KB: polyglot | Jobs: idle</div>
+          <div style="display:flex; gap:12px; min-height:360px;">
+            <div class="mock-sidebar" style="width:22%;">
+              Knowledge Tree
+              <br><br>
+              polyglot
+              <br>pkg.services
+              <br>api
+              <br>models
+            </div>
+            <div class="mock-content" style="width:56%;">
+              Canvas View
+              <br><br>
+              <div style="font-family:monospace; line-height:1.15; white-space:pre; font-size:12px;">
+ [Auth]----[UserService]----[POST /users]----[UserSchema]
+    \           |   \                 \            /
+     \       [get()] [create()]      [docs]------/
+      \
+     [README]
+
+         [BillingService]----[Invoice]----[Money]
+                \                 |
+                 \             [POST /invoice]
+                  \
+                [events]
+              </div>
+              <div style="margin-top:10px;">Viewport: x=140 y=20 | Keys: arrows pan, <code>Tab</code> cycle nodes, <code>+</code>/<code>-</code> zoom</div>
+            </div>
+            <div class="mock-content" style="width:22%;">
+              Minimap
+              <br><br>
+              [•••]
+              <br>▣ current viewport
+              <br><br>
+              Status
+              <br>Zoom: 70%
+              <br>Nodes visible: 19
+              <br>Edges visible: 24
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>Free-Panning Graph Canvas</h3>
+      <p>A larger graph lives on a spatial canvas. The user pans and zooms to inspect regions, more like a map than a semantic browser.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Shows broad structure at once</li><li>Feels closest to a graph explorer</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Harder to read in terminal space</li><li>Keyboard model is heavier</li><li>Easy to drift away from the active investigation</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-choice="list-first" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mockup">
+        <div class="mockup-header">C. List-First Graph</div>
+        <div class="mockup-body">
+          <div class="mock-nav">Guru TUI | Server: healthy | KB: polyglot | Jobs: idle</div>
+          <div style="display:flex; gap:12px; min-height:360px;">
+            <div class="mock-sidebar" style="width:24%;">
+              Knowledge Tree
+              <br><br>
+              ▾ polyglot
+              <br>&nbsp;&nbsp;▾ pkg.services
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;→ UserService
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;get
+              <br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;create
+              <br>&nbsp;&nbsp;api
+            </div>
+            <div class="mock-content" style="width:44%;">
+              Neighbors
+              <br><br>
+              OUT  CALLS        get()
+              <br>OUT  CALLS        create()
+              <br>OUT  DOCUMENTS    POST /users
+              <br>OUT  REFERENCES   UserSchema
+              <br>IN   CONTAINS     pkg.services
+              <br>IN   REFERENCES   README
+              <br><br>
+              <button class="mock-button">Open neighbor</button>
+            </div>
+            <div class="mock-content" style="width:32%;">
+              Preview
+              <br><br>
+              <div style="font-family:monospace; white-space:pre; line-height:1.2; font-size:12px;">
+    [pkg.services]
+          |
+    [UserService]
+      /   |   \
+   [get][API][Schema]
+              </div>
+              <br>
+              Detail / status panel below
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>List-First Graph</h3>
+      <p>The graph is primarily a structured neighbor list or edge table. A small preview exists, but traversal is mostly table-driven.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul><li>Simple to implement and test</li><li>Very stable in terminal layouts</li></ul></div>
+        <div class="cons"><h4>Cons</h4><ul><li>Feels less distinctive</li><li>Loses graph shape and path intuition</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="label">Recommendation</p>
+  <p>For your stated goals, <strong>A. Selection-Centered Subgraph</strong> is the strongest default. It preserves a real graph pane, keeps keyboard traversal crisp, and avoids the terminal UX cost of a freeform canvas.</p>
+</div>
