@@ -54,4 +54,6 @@ def create_app(*, backend: GraphBackend) -> FastAPI:
     app.include_router(kbs.router)
     app.include_router(query.router)
     app.include_router(relates.router)
+    app.include_router(query.router)
+    app.include_router(relates.router)
     return app

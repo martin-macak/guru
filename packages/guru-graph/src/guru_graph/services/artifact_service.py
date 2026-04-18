@@ -13,10 +13,19 @@ from guru_core.graph_types import (
     ArtifactLinkKind,
     ArtifactNeighborsResult,
     ArtifactNode,
-    GraphEdgePayload,
 )
 
 from ..backend.base import ArtifactOpsBackend
+
+
+def _to_edge(row: dict) -> dict:
+    return {
+        "from_id": row["from_id"],
+        "to_id": row["to_id"],
+        "rel_type": row["rel_type"],
+        "kind": row.get("kind"),
+        "properties": dict(row.get("properties") or {}),
+    }
 
 
 class ArtifactService:
@@ -39,7 +48,7 @@ class ArtifactService:
         depth: int,
         limit: int,
     ) -> ArtifactNeighborsResult:
-        rows = self._backend.list_neighbors(
+        nodes, edges = self._backend.list_artifact_neighbors(
             node_id=node_id,
             direction=direction,
             rel_type=rel_type,
@@ -47,36 +56,11 @@ class ArtifactService:
             depth=depth,
             limit=limit,
         )
-        nodes: list[ArtifactNode] = []
-        edges: list[GraphEdgePayload] = []
-        seen_ids: set[str] = set()
-        for row in rows:
-            neighbor_id = row["id"]
-            if neighbor_id not in seen_ids:
-                neighbor_art = self._backend.get_artifact(node_id=neighbor_id)
-                if neighbor_art is not None:
-                    nodes.append(self._compose_node(neighbor_art))
-                    seen_ids.add(neighbor_id)
-            # Build edge — direction in the row tells us which side is the source.
-            # The backend returns (id, label, rel_type, kind, distance) without
-            # explicit from/to. For an "out" walk, source=root, target=neighbor;
-            # for "in", source=neighbor, target=root. For "both" we can't tell
-            # from the row alone — emit one with the convention that we walked
-            # outward. Reviewers may revisit.
-            if direction == "in":
-                edge_from, edge_to = neighbor_id, node_id
-            else:
-                edge_from, edge_to = node_id, neighbor_id
-            edges.append(
-                GraphEdgePayload(
-                    from_id=edge_from,
-                    to_id=edge_to,
-                    rel_type=row["rel_type"],
-                    kind=row["kind"],
-                    properties={},
-                )
-            )
-        return ArtifactNeighborsResult(node_id=node_id, nodes=nodes, edges=edges)
+        return ArtifactNeighborsResult(
+            node_id=node_id,
+            nodes=[self._compose_node(row) for row in nodes],
+            edges=[_to_edge(row) for row in edges],
+        )
 
     def find(self, q: ArtifactFindQuery) -> list[ArtifactNode]:
         rows = self._backend.find_artifacts(
@@ -105,7 +89,7 @@ class ArtifactService:
         return ArtifactNode(
             id=node_id,
             label=art["label"],
-            properties=art["properties"],
+            properties=dict(art.get("properties") or {}),
             annotations=annotations,
             links_out=links_out,
             links_in=links_in,
@@ -138,9 +122,6 @@ def _to_artifact_link(edge: dict) -> ArtifactLink:
         from_id=edge["from_id"],
         to_id=edge["to_id"],
         kind=ArtifactLinkKind(edge["kind"]),
-        # FakeBackend / Neo4jBackend may not record per-edge created_at.
-        # Use UTC now as a fallback — the wire schema requires *some* datetime.
-        # If the backend ever surfaces a real timestamp, prefer that.
         created_at=datetime.fromtimestamp(props["created_at"], tz=UTC)
         if "created_at" in props
         else datetime.now(UTC),

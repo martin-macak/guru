@@ -29,14 +29,14 @@ async def test_tui_bindings_dispatch_and_mutate_state():
 
     async with app.run_test() as pilot:
         assert app.selected_mode == "investigate"
-        assert app.tree_visible is True
-        assert app.detail_visible is True
+        assert app.tree_visible is False
+        assert app.detail_visible is False
 
         await pilot.press("2")
         assert app.selected_mode == "graph"
 
         await pilot.press("ctrl+b")
-        assert app.tree_visible is False
+        assert app.tree_visible is True
 
         await pilot.press("ctrl+d")
-        assert app.detail_visible is False
+        assert app.detail_visible is True

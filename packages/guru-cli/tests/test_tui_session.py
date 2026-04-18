@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from guru_cli.tui.session import GuruSession
-from guru_core.types import SearchResultOut, StatusResponse
+from guru_core.types import IndexAccepted, SearchResultOut, StatusResponse
 
 
 @pytest.mark.asyncio
@@ -90,3 +90,40 @@ async def test_session_normalizes_search_hits():
     assert validate_calls == [search_payload[0]]
     assert hits[0].title == "UserService"
     assert hits[0].artifact_qualname == "typed::pkg.services.user.UserService"
+
+
+@pytest.mark.asyncio
+async def test_session_normalizes_reindex_response():
+    guru_client = AsyncMock()
+    guru_client.trigger_index.return_value = {
+        "job_id": "job-123",
+        "status": "running",
+        "message": "Indexing already in progress",
+    }
+    validate_calls = []
+
+    def fake_validate(payload):
+        validate_calls.append(payload)
+        return IndexAccepted(
+            job_id=payload["job_id"],
+            status=payload["status"],
+            message=payload["message"],
+        )
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(IndexAccepted, "model_validate", staticmethod(fake_validate))
+    session = GuruSession(guru_client=guru_client, graph_client=AsyncMock())
+
+    accepted = await session.trigger_reindex()
+    monkeypatch.undo()
+
+    assert guru_client.trigger_index.await_count == 1
+    assert validate_calls == [
+        {
+            "job_id": "job-123",
+            "status": "running",
+            "message": "Indexing already in progress",
+        }
+    ]
+    assert accepted.message == "Indexing already in progress"
+    assert accepted.status == "running"

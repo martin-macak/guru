@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,6 +25,14 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _cypher_identifier(value: str) -> str:
+    if not _LABEL_RE.match(value):
+        raise ValueError(f"invalid graph identifier: {value!r}")
+    return value
 
 
 class _Neo4jTx(Tx):
@@ -266,6 +275,219 @@ class Neo4jBackend:
                     "updated_at": r["updated_at"] / 1000.0,
                 }
                 for r in rs
+            ]
+
+    # ---- Declarative artifact-read helpers (called by ArtifactService) ----
+    def get_artifact(self, node_id: str) -> dict[str, Any] | None:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (n {id: $node_id})
+                WHERE NOT n:Kb AND NOT n:_Meta
+                RETURN n.id AS id,
+                       head([label IN labels(n) WHERE NOT label IN ['Kb', '_Meta']]) AS label,
+                       properties(n) AS properties
+                """,
+                parameters={"node_id": node_id},
+            ).single()
+            if rec is None:
+                return None
+            return {
+                "id": rec["id"],
+                "label": rec["label"],
+                "properties": dict(rec["properties"] or {}),
+            }
+
+    def upsert_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
+        graph_label = _cypher_identifier(label)
+        with self._driver.session() as s:
+            s.run(
+                f"""
+                MERGE (n:{graph_label} {{id: $node_id}})
+                SET n += $properties
+                """,
+                parameters={
+                    "node_id": node_id,
+                    "properties": properties,
+                },
+            )
+
+    def upsert_artifact_edge(
+        self,
+        *,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        kind: str | None,
+        properties: dict[str, Any],
+    ) -> None:
+        graph_rel = _cypher_identifier(rel_type)
+        with self._driver.session() as s:
+            s.run(
+                f"""
+                MATCH (a {{id: $from_id}}), (b {{id: $to_id}})
+                MERGE (a)-[r:{graph_rel}]->(b)
+                SET r.kind = $kind
+                SET r += $properties
+                """,
+                parameters={
+                    "from_id": from_id,
+                    "to_id": to_id,
+                    "kind": kind,
+                    "properties": properties,
+                },
+            )
+
+    def delete_artifact(self, node_id: str) -> bool:
+        with self._driver.session() as s:
+            rec = s.run(
+                """
+                MATCH (root {id: $node_id})
+                WHERE NOT root:Kb AND NOT root:_Meta
+                OPTIONAL MATCH (root)-[:CONTAINS*0..]->(n)
+                WITH collect(DISTINCT n) AS targets
+                UNWIND targets AS target
+                WITH DISTINCT target WHERE target IS NOT NULL
+                DETACH DELETE target
+                RETURN count(target) AS deleted
+                """,
+                parameters={"node_id": node_id},
+            ).single()
+            return bool(rec and rec["deleted"])
+
+    def list_artifact_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: str,
+        rel_type: str,
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        root = self.get_artifact(node_id)
+        if root is None:
+            return [], []
+
+        patterns = {
+            "out": "MATCH p=(root {id: $node_id})-[rels*1..$depth]->(neighbor)",
+            "in": "MATCH p=(root {id: $node_id})<-[rels*1..$depth]-(neighbor)",
+            "both": "MATCH p=(root {id: $node_id})-[rels*1..$depth]-(neighbor)",
+        }
+        cypher = (
+            patterns[direction]
+            + """
+            WHERE ALL(
+                rel IN rels
+                WHERE ($rel_type = 'both' OR type(rel) = $rel_type)
+                  AND ($kind IS NULL OR rel.kind = $kind)
+            )
+            RETURN [node IN nodes(p) |
+                        {
+                            id: node.id,
+                            label: head([label IN labels(node) WHERE NOT label IN ['Kb', '_Meta']]),
+                            properties: properties(node)
+                        }
+                   ] AS path_nodes,
+                   [rel IN relationships(p) |
+                        {
+                            from_id: startNode(rel).id,
+                            to_id: endNode(rel).id,
+                            rel_type: type(rel),
+                            kind: rel.kind,
+                            properties: properties(rel)
+                        }
+                   ] AS path_edges
+            """
+        )
+        with self._driver.session() as s:
+            rs = s.run(
+                cypher,
+                parameters={
+                    "node_id": node_id,
+                    "depth": depth,
+                    "rel_type": rel_type,
+                    "kind": kind,
+                },
+            )
+            nodes_by_id: dict[str, dict[str, Any]] = {root["id"]: root}
+            edges_by_key: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
+            for rec in rs:
+                for node in rec["path_nodes"]:
+                    if node["id"] is not None and node["id"] not in nodes_by_id:
+                        nodes_by_id[node["id"]] = {
+                            "id": node["id"],
+                            "label": node["label"],
+                            "properties": dict(node["properties"] or {}),
+                        }
+                for edge in rec["path_edges"]:
+                    key = (
+                        edge["from_id"],
+                        edge["to_id"],
+                        edge["rel_type"],
+                        edge.get("kind"),
+                    )
+                    if key not in edges_by_key:
+                        edges_by_key[key] = {
+                            "from_id": edge["from_id"],
+                            "to_id": edge["to_id"],
+                            "rel_type": edge["rel_type"],
+                            "kind": edge.get("kind"),
+                            "properties": dict(edge.get("properties") or {}),
+                        }
+            ordered_nodes = list(nodes_by_id.values())[:limit]
+            allowed_ids = {node["id"] for node in ordered_nodes}
+            ordered_edges = [
+                edge
+                for edge in edges_by_key.values()
+                if edge["from_id"] in allowed_ids and edge["to_id"] in allowed_ids
+            ]
+            return ordered_nodes, ordered_edges
+
+    def find_artifacts(
+        self,
+        *,
+        name: str | None = None,
+        qualname_prefix: str | None = None,
+        label: str | None = None,
+        tag: str | None = None,
+        kb_name: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        filters = ["n.id IS NOT NULL", "NOT n:Kb", "NOT n:_Meta"]
+        params: dict[str, Any] = {"limit": limit}
+        if label:
+            filters.append("$label IN labels(n)")
+            params["label"] = label
+        if name:
+            filters.append("coalesce(n.name, '') STARTS WITH $name")
+            params["name"] = name
+        if qualname_prefix:
+            filters.append("coalesce(n.qualname, '') STARTS WITH $qualname_prefix")
+            params["qualname_prefix"] = qualname_prefix
+        if tag:
+            filters.append("$tag IN coalesce(n.tags, [])")
+            params["tag"] = tag
+        if kb_name:
+            filters.append("n.kb_name = $kb_name")
+            params["kb_name"] = kb_name
+        cypher = (
+            "MATCH (n) "
+            f"WHERE {' AND '.join(filters)} "
+            "RETURN n.id AS id, "
+            "       head([label IN labels(n) WHERE NOT label IN ['Kb', '_Meta']]) AS label, "
+            "       properties(n) AS properties "
+            "ORDER BY n.id LIMIT $limit"
+        )
+        with self._driver.session() as s:
+            rs = s.run(cypher, parameters=params)
+            return [
+                {
+                    "id": rec["id"],
+                    "label": rec["label"],
+                    "properties": dict(rec["properties"] or {}),
+                }
+                for rec in rs
             ]
 
     def delete_kb(self, name: str) -> bool:

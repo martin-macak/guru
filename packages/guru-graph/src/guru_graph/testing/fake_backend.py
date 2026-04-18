@@ -1,8 +1,8 @@
 """In-memory GraphBackend for tests.
 
 Deliberately does NOT parse Cypher. Exposes declarative helper methods used
-by KbService tests; the Cypher escape-hatch path is only covered by real
-Neo4j integration tests (@real_neo4j).
+by service and route tests; the Cypher escape-hatch path is only covered by
+real Neo4j integration tests (@real_neo4j).
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ class _FakeArtifact:
     node_id: str
     label: str
     properties: dict[str, Any]
-    snapshot_ids: list[str] = field(default_factory=list)  # Document-only
+    snapshot_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
 class _FakeEdge:
     from_id: str
     to_id: str
-    rel_type: str  # "CONTAINS" | "RELATES"
+    rel_type: str
     kind: str | None
     properties: dict[str, Any]
 
@@ -66,12 +66,6 @@ class _FakeAnnotation:
 
 @dataclass
 class FakeBackend:
-    """In-memory backend.
-
-    Designed to support KbService unit tests without a JVM. Cypher methods
-    are stubbed — tests that exercise Cypher should use real Neo4j.
-    """
-
     _nodes: dict[str, dict[str, Any]] = field(default_factory=dict)
     _links: list[_FakeLink] = field(default_factory=list)
     _artifacts: dict[str, _FakeArtifact] = field(default_factory=dict)
@@ -80,7 +74,6 @@ class FakeBackend:
     _started: bool = False
     _schema_version: int = 0
 
-    # ---- Lifecycle ----
     def start(self) -> None:
         self._started = True
 
@@ -96,7 +89,6 @@ class FakeBackend:
     def info(self) -> BackendInfo:
         return BackendInfo(name="fake", version="0.0.0", schema_version=self._schema_version)
 
-    # ---- Cypher surface (stubbed) ----
     def execute(self, cypher: str, params: dict[str, Any]) -> CypherResult:
         return CypherResult(columns=[], rows=[], elapsed_ms=0.0)
 
@@ -111,7 +103,7 @@ class FakeBackend:
         check_migration_target(current=self._schema_version, target=target_version)
         self._schema_version = target_version
 
-    # ---- Test helpers: declarative node/link ops (not Cypher) ----
+    # ---- KB ops ----
     def upsert_kb(
         self, *, name: str, project_root: str, tags: list[str], metadata_json: str
     ) -> None:
@@ -155,7 +147,7 @@ class FakeBackend:
             raise KeyError(f"missing endpoint: {from_kb!r} or {to_kb!r}")
         for link in self._links:
             if link.from_kb == from_kb and link.to_kb == to_kb and link.kind == kind:
-                link.metadata_json = metadata_json  # idempotent update
+                link.metadata_json = metadata_json
                 return
         self._links.append(
             _FakeLink(
@@ -195,6 +187,33 @@ class FakeBackend:
         return out
 
     # ---- Artifact ingest ops ----
+    def seed_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
+        if label == "Document":
+            self.upsert_document(node_id=node_id, label=label, properties=properties)
+        else:
+            self.upsert_artifact(node_id=node_id, label=label, properties=properties)
+
+    def seed_artifact_edge(
+        self,
+        *,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        kind: str | None = None,
+        properties: dict[str, Any] | None = None,
+    ) -> None:
+        if rel_type == "CONTAINS":
+            self.create_contains_edge(from_id=from_id, to_id=to_id)
+            return
+        if kind is None:
+            raise ValueError("RELATES edge requires kind")
+        self.create_relates_edge(
+            from_id=from_id,
+            to_id=to_id,
+            kind=kind,
+            properties=dict(properties or {}),
+        )
+
     def upsert_document(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
         assert label == "Document", f"upsert_document requires label='Document', got {label!r}"
         existing = self._artifacts.get(node_id)
@@ -223,21 +242,15 @@ class FakeBackend:
         self._edges = [e for e in self._edges if e.from_id != node_id and e.to_id != node_id]
 
     def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
-        """See :meth:`ArtifactOpsBackend.delete_artifact_with_descendants`."""
         if node_id not in self._artifacts:
             return []
-        # BFS over CONTAINS edges starting from node_id.
-        result: list[str] = [node_id]
-        seen: set[str] = {node_id}
-        queue: list[str] = [node_id]
+        result = [node_id]
+        seen = {node_id}
+        queue = [node_id]
         while queue:
             current = queue.pop(0)
             for edge in self._edges:
-                if (
-                    edge.rel_type == "CONTAINS"
-                    and edge.from_id == current
-                    and edge.to_id not in seen
-                ):
+                if edge.rel_type == "CONTAINS" and edge.from_id == current and edge.to_id not in seen:
                     seen.add(edge.to_id)
                     result.append(edge.to_id)
                     queue.append(edge.to_id)
@@ -294,17 +307,12 @@ class FakeBackend:
         return len(self._edges) < before
 
     def remove_outbound_relates_rooted_at(self, *, doc_id: str) -> None:
-        # Collect all nodes reachable via CONTAINS* from doc_id (including doc_id).
-        reachable: set[str] = {doc_id}
-        queue: list[str] = [doc_id]
+        reachable = {doc_id}
+        queue = [doc_id]
         while queue:
             current = queue.pop(0)
             for edge in self._edges:
-                if (
-                    edge.rel_type == "CONTAINS"
-                    and edge.from_id == current
-                    and edge.to_id not in reachable
-                ):
+                if edge.rel_type == "CONTAINS" and edge.from_id == current and edge.to_id not in reachable:
                     reachable.add(edge.to_id)
                     queue.append(edge.to_id)
         self._edges = [
@@ -315,13 +323,10 @@ class FakeBackend:
 
     def get_document_snapshot(self, *, doc_id: str) -> list[str]:
         art = self._artifacts.get(doc_id)
-        if art is None:
-            return []
-        return list(art.snapshot_ids)
+        return [] if art is None else list(art.snapshot_ids)
 
     def set_document_snapshot(self, *, doc_id: str, node_ids: list[str]) -> None:
-        art = self._artifacts[doc_id]  # KeyError if missing, as documented.
-        art.snapshot_ids = list(node_ids)
+        self._artifacts[doc_id].snapshot_ids = list(node_ids)
 
     def orphan_annotations_for(self, *, node_ids: list[str]) -> None:
         ids = set(node_ids)
@@ -333,7 +338,7 @@ class FakeBackend:
                 ann.updated_at = now
 
     # ---- Artifact queries ----
-    def get_artifact(self, *, node_id: str) -> dict[str, Any] | None:
+    def get_artifact(self, node_id: str) -> dict[str, Any] | None:
         art = self._artifacts.get(node_id)
         if art is None:
             return None
@@ -355,47 +360,87 @@ class FakeBackend:
     ) -> list[dict[str, Any]]:
         if depth <= 0:
             depth = 1
-        # BFS walking _edges respecting direction + rel_type + kind filter.
         results: list[dict[str, Any]] = []
-        visited: set[str] = {node_id}
-        frontier: list[tuple[str, int]] = [(node_id, 0)]
+        visited = {node_id}
+        frontier = [(node_id, 0)]
         while frontier and len(results) < limit:
             current, dist = frontier.pop(0)
             if dist >= depth:
                 continue
             for edge in self._edges:
-                # Respect rel_type filter.
                 if rel_type != "both" and edge.rel_type != rel_type:
                     continue
-                # Respect kind filter (only applies to RELATES).
                 if kind is not None and edge.rel_type == "RELATES" and edge.kind != kind:
                     continue
-                # Respect direction.
                 neighbor_id: str | None = None
                 if direction in ("out", "both") and edge.from_id == current:
                     neighbor_id = edge.to_id
                 elif direction in ("in", "both") and edge.to_id == current:
                     neighbor_id = edge.from_id
-                else:
-                    continue
-                if neighbor_id in visited:
+                if neighbor_id is None or neighbor_id in visited:
                     continue
                 visited.add(neighbor_id)
                 art = self._artifacts.get(neighbor_id)
-                neighbor_label = art.label if art is not None else None
                 results.append(
                     {
                         "id": neighbor_id,
-                        "label": neighbor_label,
+                        "label": art.label if art else None,
                         "rel_type": edge.rel_type,
                         "kind": edge.kind,
                         "distance": dist + 1,
                     }
                 )
-                if len(results) >= limit:
-                    break
                 frontier.append((neighbor_id, dist + 1))
         return results
+
+    def list_artifact_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: str,
+        rel_type: str,
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if node_id not in self._artifacts:
+            return [], []
+        visited = {node_id}
+        ordered = [self.get_artifact(node_id=node_id)]
+        frontier = [(node_id, 0)]
+        edges_out: list[dict[str, Any]] = []
+        seen_edges: set[tuple[str, str, str, str | None]] = set()
+        while frontier and len(ordered) < limit:
+            current_id, current_depth = frontier.pop(0)
+            if current_depth >= depth:
+                continue
+            for edge in self._edges:
+                if rel_type != "both" and edge.rel_type != rel_type:
+                    continue
+                if kind is not None and edge.rel_type == "RELATES" and edge.kind != kind:
+                    continue
+                matches_out = direction in ("out", "both") and edge.from_id == current_id
+                matches_in = direction in ("in", "both") and edge.to_id == current_id
+                if not matches_out and not matches_in:
+                    continue
+                key = (edge.from_id, edge.to_id, edge.rel_type, edge.kind)
+                if key not in seen_edges:
+                    seen_edges.add(key)
+                    edges_out.append(
+                        {
+                            "from_id": edge.from_id,
+                            "to_id": edge.to_id,
+                            "rel_type": edge.rel_type,
+                            "kind": edge.kind,
+                            "properties": copy.deepcopy(edge.properties),
+                        }
+                    )
+                next_id = edge.to_id if edge.from_id == current_id else edge.from_id
+                if next_id not in visited and next_id in self._artifacts and len(ordered) < limit:
+                    visited.add(next_id)
+                    ordered.append(self.get_artifact(node_id=next_id))
+                    frontier.append((next_id, current_depth + 1))
+        return [row for row in ordered if row is not None], edges_out
 
     def find_artifacts(
         self,
@@ -409,7 +454,7 @@ class FakeBackend:
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         for art in self._artifacts.values():
-            if name is not None and art.properties.get("name") != name:
+            if name is not None and not str(art.properties.get("name", "")).startswith(name):
                 continue
             if qualname_prefix is not None and not str(
                 art.properties.get("qualname", "")
@@ -433,11 +478,7 @@ class FakeBackend:
         return results
 
     def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for ann in self._annotations.values():
-            if ann.target_id == node_id:
-                out.append(_annotation_to_dict(ann))
-        return out
+        return [_annotation_to_dict(ann) for ann in self._annotations.values() if ann.target_id == node_id]
 
     def list_relates_for(self, *, node_id: str, direction: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -507,7 +548,7 @@ class FakeBackend:
         now = time.time()
         existing = self._annotations.get(annotation_id)
         if existing is None:
-            ann = _FakeAnnotation(
+            existing = _FakeAnnotation(
                 annotation_id=annotation_id,
                 target_id=target_id,
                 target_label=target_label,
@@ -519,8 +560,8 @@ class FakeBackend:
                 updated_at=now,
                 target_snapshot_json=target_snapshot_json,
             )
-            self._annotations[annotation_id] = ann
-            return _annotation_to_dict(ann)
+            self._annotations[annotation_id] = existing
+            return _annotation_to_dict(existing)
         existing.target_id = target_id
         existing.target_label = target_label
         existing.kind = "summary"
@@ -539,9 +580,7 @@ class FakeBackend:
 
     def get_annotation(self, *, annotation_id: str) -> dict[str, Any] | None:
         ann = self._annotations.get(annotation_id)
-        if ann is None:
-            return None
-        return _annotation_to_dict(ann)
+        return None if ann is None else _annotation_to_dict(ann)
 
     def list_orphans(self, *, limit: int) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []

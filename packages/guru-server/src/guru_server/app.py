@@ -223,7 +223,6 @@ def create_app(
     parser_registry.register(OpenApiParser())
     app.state.parser_registry = parser_registry
 
-    # Build graph client before BackgroundIndexer so it can be passed in.
     graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
     app.state.graph_enabled = graph_enabled
     app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)

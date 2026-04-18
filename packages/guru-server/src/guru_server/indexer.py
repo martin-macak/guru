@@ -247,8 +247,6 @@ class BackgroundIndexer:
         assert parser is not None, f"no parser for {file_path} — discovery should have filtered it"
         parse_result = parser.parse(file_path, rule, kb_name=self._kb_name, rel_path=rel_path)
         chunks = parse_result.chunks
-        # parse_result.document/nodes/edges are captured but discarded in PR-1 —
-        # PR-2 wires them into graph ingestion via graph_or_skip.
         for chunk in chunks:
             chunk.file_path = rel_path
 

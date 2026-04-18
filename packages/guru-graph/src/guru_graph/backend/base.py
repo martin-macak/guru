@@ -172,6 +172,17 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
 
     def list_relates_for(self, *, node_id: str, direction: str) -> list[dict[str, Any]]: ...
 
+    def list_artifact_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: str,
+        rel_type: str,
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]: ...
+
     # ---- Annotations ----
     def create_annotation(
         self,
@@ -213,7 +224,6 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
     def list_orphans(self, *, limit: int) -> list[dict[str, Any]]: ...
 
     def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool: ...
-
 
 class GraphBackendRegistry:
     """Registry for available GraphBackend implementations.

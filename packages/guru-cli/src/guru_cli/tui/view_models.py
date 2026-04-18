@@ -35,3 +35,17 @@ class DocumentDetailVM:
     file_path: str
     content: str
     labels: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class GraphNodeVM:
+    node_id: str
+    label: str
+    kind: str = ""
+
+
+@dataclass(frozen=True)
+class GraphEdgeVM:
+    from_id: str
+    to_id: str
+    rel_type: str

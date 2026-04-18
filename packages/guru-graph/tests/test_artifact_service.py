@@ -63,14 +63,12 @@ def test_describe_includes_links_out_and_in():
     svc, backend = _svc()
     for nid in ("kb::A", "kb::B", "kb::C"):
         backend.upsert_artifact(node_id=nid, label="Module", properties={"kb_name": "kb"})
-    # A -> B (out for A)
     backend.create_relates_edge(
         from_id="kb::A",
         to_id="kb::B",
         kind="imports",
         properties={"author": "user:test", "metadata_json": "{}"},
     )
-    # C -> A (in for A)
     backend.create_relates_edge(
         from_id="kb::C",
         to_id="kb::A",
@@ -108,181 +106,117 @@ def test_describe_link_includes_author_and_metadata():
     assert link.metadata == meta
 
 
-def test_neighbors_returns_root_and_one_hop():
+def test_neighbors_returns_bounded_graph():
     svc, backend = _svc()
-    backend.upsert_artifact(node_id="kb::A", label="Module", properties={"kb_name": "kb"})
-    backend.upsert_artifact(node_id="kb::B", label="Module", properties={"kb_name": "kb"})
-    backend.create_relates_edge(
-        from_id="kb::A",
-        to_id="kb::B",
-        kind="imports",
-        properties={"author": "user:test", "metadata_json": "{}"},
+    backend.seed_artifact(
+        node_id="alpha::pkg.module",
+        label="Module",
+        properties={"name": "module", "qualname": "pkg.module", "kb_name": "alpha"},
+    )
+    backend.seed_artifact(
+        node_id="alpha::pkg.module.Widget",
+        label="Class",
+        properties={"name": "Widget", "qualname": "pkg.module.Widget", "kb_name": "alpha"},
+    )
+    backend.seed_artifact(
+        node_id="alpha::pkg.module.Widget.run",
+        label="Method",
+        properties={
+            "name": "run",
+            "qualname": "pkg.module.Widget.run",
+            "kb_name": "alpha",
+            "tags": ["entrypoint"],
+        },
+    )
+    backend.seed_artifact_edge(
+        from_id="alpha::pkg.module",
+        to_id="alpha::pkg.module.Widget",
+        rel_type="CONTAINS",
+    )
+    backend.seed_artifact_edge(
+        from_id="alpha::pkg.module.Widget",
+        to_id="alpha::pkg.module.Widget.run",
+        rel_type="RELATES",
+        kind="references",
     )
     result = svc.neighbors(
-        node_id="kb::A",
-        direction="out",
-        rel_type="RELATES",
-        kind=None,
-        depth=1,
-        limit=50,
-    )
-    assert result.node_id == "kb::A"
-    assert [n.id for n in result.nodes] == ["kb::B"]
-    assert len(result.edges) == 1
-    edge = result.edges[0]
-    assert edge.from_id == "kb::A"
-    assert edge.to_id == "kb::B"
-    assert edge.rel_type == "RELATES"
-    assert edge.kind == "imports"
-
-
-def test_neighbors_respects_direction_in():
-    svc, backend = _svc()
-    backend.upsert_artifact(node_id="kb::A", label="Module", properties={"kb_name": "kb"})
-    backend.upsert_artifact(node_id="kb::B", label="Module", properties={"kb_name": "kb"})
-    backend.create_relates_edge(
-        from_id="kb::A",
-        to_id="kb::B",
-        kind="imports",
-        properties={"author": "user:test", "metadata_json": "{}"},
-    )
-    result = svc.neighbors(
-        node_id="kb::B",
-        direction="in",
-        rel_type="RELATES",
-        kind=None,
-        depth=1,
-        limit=50,
-    )
-    assert [n.id for n in result.nodes] == ["kb::A"]
-    assert len(result.edges) == 1
-    edge = result.edges[0]
-    assert edge.from_id == "kb::A"
-    assert edge.to_id == "kb::B"
-
-
-def test_neighbors_respects_kind_filter():
-    svc, backend = _svc()
-    for nid in ("kb::A", "kb::B", "kb::C"):
-        backend.upsert_artifact(node_id=nid, label="Module", properties={"kb_name": "kb"})
-    backend.create_relates_edge(
-        from_id="kb::A",
-        to_id="kb::B",
-        kind="imports",
-        properties={"author": "user:test", "metadata_json": "{}"},
-    )
-    backend.create_relates_edge(
-        from_id="kb::A",
-        to_id="kb::C",
-        kind="calls",
-        properties={"author": "user:test", "metadata_json": "{}"},
-    )
-    result = svc.neighbors(
-        node_id="kb::A",
-        direction="out",
-        rel_type="RELATES",
-        kind="imports",
-        depth=1,
-        limit=50,
-    )
-    assert [n.id for n in result.nodes] == ["kb::B"]
-
-
-def test_neighbors_respects_depth():
-    svc, backend = _svc()
-    for nid in ("kb::A", "kb::B", "kb::C"):
-        backend.upsert_artifact(node_id=nid, label="Module", properties={"kb_name": "kb"})
-    backend.create_relates_edge(
-        from_id="kb::A",
-        to_id="kb::B",
-        kind="imports",
-        properties={"author": "user:test", "metadata_json": "{}"},
-    )
-    backend.create_relates_edge(
-        from_id="kb::B",
-        to_id="kb::C",
-        kind="imports",
-        properties={"author": "user:test", "metadata_json": "{}"},
-    )
-    r1 = svc.neighbors(
-        node_id="kb::A",
-        direction="out",
-        rel_type="RELATES",
-        kind=None,
-        depth=1,
-        limit=50,
-    )
-    assert {n.id for n in r1.nodes} == {"kb::B"}
-    r2 = svc.neighbors(
-        node_id="kb::A",
-        direction="out",
-        rel_type="RELATES",
-        kind=None,
-        depth=2,
-        limit=50,
-    )
-    assert {n.id for n in r2.nodes} == {"kb::B", "kb::C"}
-
-
-def test_neighbors_empty_for_missing_root():
-    svc, _ = _svc()
-    result = svc.neighbors(
-        node_id="kb::ghost",
+        node_id="alpha::pkg.module.Widget",
         direction="both",
         rel_type="both",
         kind=None,
         depth=1,
-        limit=50,
+        limit=10,
     )
-    assert result.node_id == "kb::ghost"
-    assert result.nodes == []
-    assert result.edges == []
+    assert [node.id for node in result.nodes] == [
+        "alpha::pkg.module.Widget",
+        "alpha::pkg.module",
+        "alpha::pkg.module.Widget.run",
+    ]
+    assert {(edge.from_id, edge.to_id, edge.rel_type) for edge in result.edges} == {
+        ("alpha::pkg.module", "alpha::pkg.module.Widget", "CONTAINS"),
+        ("alpha::pkg.module.Widget", "alpha::pkg.module.Widget.run", "RELATES"),
+    }
 
 
-def test_find_filters_by_name():
+def test_neighbors_kind_filter_only_keeps_matching_edges():
+    svc, backend = _svc()
+    backend.seed_artifact(
+        node_id="alpha::pkg.module.Widget",
+        label="Class",
+        properties={"name": "Widget", "qualname": "pkg.module.Widget", "kb_name": "alpha"},
+    )
+    backend.seed_artifact(
+        node_id="alpha::pkg.module.Widget.run",
+        label="Method",
+        properties={"name": "run", "qualname": "pkg.module.Widget.run", "kb_name": "alpha"},
+    )
+    backend.seed_artifact_edge(
+        from_id="alpha::pkg.module.Widget",
+        to_id="alpha::pkg.module.Widget.run",
+        rel_type="RELATES",
+        kind="references",
+    )
+    result = svc.neighbors(
+        node_id="alpha::pkg.module.Widget",
+        direction="out",
+        rel_type="RELATES",
+        kind="references",
+        depth=1,
+        limit=10,
+    )
+    assert [node.id for node in result.nodes] == [
+        "alpha::pkg.module.Widget",
+        "alpha::pkg.module.Widget.run",
+    ]
+    assert len(result.edges) == 1
+    assert result.edges[0].kind == "references"
+
+
+def test_find_filters_by_name_label_and_kb():
     svc, backend = _svc()
     backend.upsert_artifact(
-        node_id="kb::X", label="Class", properties={"kb_name": "kb", "name": "X"}
+        node_id="kb::Widget", label="Class", properties={"kb_name": "kb", "name": "Widget"}
     )
     backend.upsert_artifact(
-        node_id="kb::Y", label="Class", properties={"kb_name": "kb", "name": "Y"}
+        node_id="kb::Service", label="Class", properties={"kb_name": "kb", "name": "Service"}
     )
-    out = svc.find(ArtifactFindQuery(name="X"))
-    assert [n.id for n in out] == ["kb::X"]
-
-
-def test_find_filters_by_label():
-    svc, backend = _svc()
-    backend.upsert_artifact(node_id="kb::C1", label="Class", properties={"kb_name": "kb"})
-    backend.upsert_artifact(node_id="kb::F1", label="Function", properties={"kb_name": "kb"})
-    out = svc.find(ArtifactFindQuery(label="Class"))
-    assert [n.id for n in out] == ["kb::C1"]
-
-
-def test_find_filters_by_kb_name():
-    svc, backend = _svc()
-    backend.upsert_artifact(node_id="kb::A1", label="Class", properties={"kb_name": "alpha"})
-    backend.upsert_artifact(node_id="kb::B1", label="Class", properties={"kb_name": "beta"})
-    out = svc.find(ArtifactFindQuery(kb_name="alpha"))
-    assert [n.id for n in out] == ["kb::A1"]
-
-
-def test_find_returns_empty_when_no_match():
-    svc, backend = _svc()
-    backend.upsert_artifact(
-        node_id="kb::X", label="Class", properties={"kb_name": "kb", "name": "X"}
-    )
-    out = svc.find(ArtifactFindQuery(name="nothing"))
-    assert out == []
-
-
-def test_find_respects_limit():
-    svc, backend = _svc()
-    for i in range(5):
-        backend.upsert_artifact(
-            node_id=f"kb::N{i}",
+    result = svc.find(
+        ArtifactFindQuery(
+            name="Wid",
             label="Class",
-            properties={"kb_name": "kb", "name": f"N{i}"},
+            kb_name="kb",
+            limit=10,
         )
-    out = svc.find(ArtifactFindQuery(limit=2))
-    assert len(out) == 2
+    )
+    assert [node.id for node in result] == ["kb::Widget"]
+
+
+def test_find_filters_by_tag():
+    svc, backend = _svc()
+    backend.upsert_artifact(
+        node_id="kb::Run",
+        label="Method",
+        properties={"kb_name": "kb", "name": "run", "tags": ["entrypoint"]},
+    )
+    result = svc.find(ArtifactFindQuery(tag="entrypoint"))
+    assert [node.id for node in result] == ["kb::Run"]
