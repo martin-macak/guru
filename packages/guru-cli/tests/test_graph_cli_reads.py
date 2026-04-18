@@ -252,3 +252,45 @@ def test_kb_show_json(runner, mock_client):
     result = runner.invoke(graph_group, ["kb", "alpha", "--json"])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["name"] == "alpha"
+
+
+# ---- Task 5: guru graph links NAME ----
+
+
+def test_links_default_direction_is_both(runner, mock_client):
+    mock_client.list_links = AsyncMock(return_value=[_link("alpha", "beta")])
+    result = runner.invoke(graph_group, ["links", "alpha"])
+    assert result.exit_code == 0, result.output
+    assert "alpha" in result.output and "beta" in result.output
+    assert "depends_on" in result.output
+    mock_client.list_links.assert_awaited_once_with(name="alpha", direction="both")
+
+
+def test_links_direction_flag(runner, mock_client):
+    mock_client.list_links = AsyncMock(return_value=[])
+    result = runner.invoke(graph_group, ["links", "alpha", "--direction", "out"])
+    assert result.exit_code == 0, result.output
+    mock_client.list_links.assert_awaited_once_with(name="alpha", direction="out")
+
+
+def test_links_empty_text(runner, mock_client):
+    mock_client.list_links = AsyncMock(return_value=[])
+    result = runner.invoke(graph_group, ["links", "alpha"])
+    assert result.exit_code == 0, result.output
+    assert "no links" in result.output
+
+
+def test_links_json(runner, mock_client):
+    mock_client.list_links = AsyncMock(return_value=[_link("alpha", "beta")])
+    result = runner.invoke(graph_group, ["links", "alpha", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert data[0]["from_kb"] == "alpha"
+    assert data[0]["kind"] == "depends_on"
+
+
+def test_links_invalid_direction_rejected(runner, mock_client):
+    mock_client.list_links = AsyncMock()
+    result = runner.invoke(graph_group, ["links", "alpha", "--direction", "sideways"])
+    assert result.exit_code != 0
+    mock_client.list_links.assert_not_awaited()

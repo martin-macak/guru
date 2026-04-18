@@ -297,3 +297,42 @@ def kb(name: str, as_json: bool) -> None:
         click.echo(_json.dumps(node.model_dump(mode="json"), indent=2, default=str))
     else:
         click.echo(_render_kb_kv(node))
+
+
+@graph_group.command(name="links")
+@click.argument("name")
+@click.option(
+    "--direction",
+    type=click.Choice(["in", "out", "both"]),
+    default="both",
+    help="Which direction of links to list.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit JSON array instead of a text table.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long values.",
+)
+def links(name: str, direction: str, as_json: bool, no_truncate: bool) -> None:
+    """List a KB's links."""
+    client = _client()
+    items = _handle_graph_errors(
+        client.list_links(name=name, direction=direction),
+    )
+    if as_json:
+        click.echo(
+            _json.dumps(
+                [link.model_dump(mode="json") for link in items],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        click.echo(_render_links_table(items, truncate=not no_truncate))
