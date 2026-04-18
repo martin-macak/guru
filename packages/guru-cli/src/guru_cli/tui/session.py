@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from guru_core.client import GuruClient
 from guru_core.graph_client import GraphClient
-from guru_core.types import SearchResultOut, StatusResponse
+from guru_core.types import (
+    DocumentListItem,
+    DocumentOut,
+    SearchResultOut,
+    StatusResponse,
+)
 
 from .view_models import (
     DocumentDetailVM,
@@ -46,17 +51,18 @@ class GuruSession:
         raw_docs = await self._guru.list_documents()
         return [
             KnowledgeTreeItemVM(
-                node_id=doc["file_path"],
-                label=doc["file_path"],
+                node_id=typed_doc.file_path,
+                label=typed_doc.file_path,
                 kind="document",
             )
-            for doc in raw_docs
+            for raw_doc in raw_docs
+            for typed_doc in [DocumentListItem.model_validate(raw_doc)]
         ]
 
     async def load_document(self, file_path: str) -> DocumentDetailVM:
-        raw = await self._guru.get_document(file_path)
+        raw = DocumentOut.model_validate(await self._guru.get_document(file_path))
         return DocumentDetailVM(
-            file_path=raw["file_path"],
-            content=raw["content"],
-            labels=list(raw.get("labels", [])),
+            file_path=raw.file_path,
+            content=raw.content,
+            labels=list(raw.labels),
         )

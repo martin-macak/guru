@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic import ValidationError
 
 from guru_cli.tui.app import WorkbenchApp
 from guru_cli.tui.session import GuruSession
@@ -108,3 +109,36 @@ async def test_mode_binding_updates_workbench_state():
 
         assert app._state.mode is WorkbenchMode.GRAPH
         assert _widget_text(mode_label) == "Mode: Graph"
+
+
+@pytest.mark.asyncio
+async def test_load_documents_normalizes_through_document_list_item():
+    guru_client = AsyncMock()
+    guru_client.list_documents.return_value = [
+        {
+            "file_path": "docs/auth.md",
+            "frontmatter": {"title": "Auth"},
+            "labels": ["documentation"],
+            "chunk_count": "invalid",
+        }
+    ]
+    session = GuruSession(guru_client=guru_client, graph_client=AsyncMock())
+
+    with pytest.raises(ValidationError):
+        await session.load_documents()
+
+
+@pytest.mark.asyncio
+async def test_load_document_normalizes_through_document_out():
+    guru_client = AsyncMock()
+    guru_client.get_document.return_value = {
+        "file_path": "docs/auth.md",
+        "content": "Auth content",
+        "frontmatter": {"title": "Auth"},
+        "labels": "documentation",
+        "chunk_count": "invalid",
+    }
+    session = GuruSession(guru_client=guru_client, graph_client=AsyncMock())
+
+    with pytest.raises(ValidationError):
+        await session.load_document("docs/auth.md")
