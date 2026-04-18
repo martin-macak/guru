@@ -83,12 +83,18 @@ def resolve_config(
         return global_cfg
 
     merged_rules = merge_rules(global_cfg.rules, local_cfg.rules)
+    if "web" in local_cfg.model_fields_set:
+        web = resolve_web_config(local_cfg)
+    elif "web" in global_cfg.model_fields_set:
+        web = resolve_web_config(global_cfg)
+    else:
+        web = resolve_web_config(None)
     return GuruConfig(
         version=1,
         rules=merged_rules,
         name=local_cfg.name if local_cfg.name is not None else global_cfg.name,
         graph=local_cfg.graph if local_cfg.graph is not None else global_cfg.graph,
-        web=resolve_web_config(local_cfg),
+        web=web,
     )
 
 
