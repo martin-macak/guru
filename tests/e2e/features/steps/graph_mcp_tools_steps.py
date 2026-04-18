@@ -452,7 +452,21 @@ def step_call_graph_annotate(context, node_id, kind, body):
 
 @when('the MCP client calls graph_query with cypher "{cypher}"')
 def step_call_graph_query(context, cypher):
-    context.mcp_response = _run(_call_tool("graph_query", {"cypher": cypher}))
+    """Capture rejection-via-exception OR a successful response.
+
+    For the read-only-enforcement scenarios, a write Cypher is expected to
+    be refused. The refusal can surface as either:
+      - a ToolError raised by FastMCP (Neo4j AccessMode error → 500 →
+        GraphUnavailable → ToolError), or
+      - a response dict with no rows / an explicit ``error`` key.
+    Both satisfy the contract; ``Then`` confirms no node was created.
+    """
+    try:
+        context.mcp_response = _run(_call_tool("graph_query", {"cypher": cypher}))
+        context.mcp_exception = None
+    except Exception as exc:
+        context.mcp_response = {"error": "rejected", "detail": str(exc)}
+        context.mcp_exception = exc
 
 
 # ---------------------------------------------------------------------------
