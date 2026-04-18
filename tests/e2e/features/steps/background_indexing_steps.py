@@ -9,6 +9,8 @@ from behave import then, when
 
 
 def _http_client(context):
+    if hasattr(context, "server_client"):
+        return context.server_client
     socket_path = str(context.project_dir / ".guru" / "guru.sock")
     transport = httpx.HTTPTransport(uds=socket_path)
     return httpx.Client(transport=transport, timeout=30.0)
@@ -17,25 +19,33 @@ def _http_client(context):
 def _wait_for_index(context, timeout=30.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        with _http_client(context) as client:
-            resp = client.get("http://localhost/status")
-            data = resp.json()
-            if data.get("current_job") is None:
-                # Get the most recent job detail
-                if hasattr(context, "last_job_id") and context.last_job_id:
-                    resp = client.get(f"http://localhost/jobs/{context.last_job_id}")
-                    context.last_job = resp.json()
-                return
+        client = _http_client(context)
+        resp = client.get(
+            "/status" if hasattr(context, "server_client") else "http://localhost/status"
+        )
+        data = resp.json()
+        if data.get("current_job") is None:
+            if hasattr(context, "last_job_id") and context.last_job_id:
+                job_path = (
+                    f"/jobs/{context.last_job_id}"
+                    if hasattr(context, "server_client")
+                    else f"http://localhost/jobs/{context.last_job_id}"
+                )
+                resp = client.get(job_path)
+                context.last_job = resp.json()
+            return
         time.sleep(0.3)
     raise RuntimeError("Index did not complete within timeout")
 
 
 @when("I trigger indexing via REST API")
 def step_trigger_index(context):
-    with _http_client(context) as client:
-        resp = client.post("http://localhost/index", json={})
-        context.index_response = resp.json()
-        context.last_job_id = context.index_response.get("job_id")
+    client = _http_client(context)
+    resp = client.post(
+        "/index" if hasattr(context, "server_client") else "http://localhost/index", json={}
+    )
+    context.index_response = resp.json()
+    context.last_job_id = context.index_response.get("job_id")
 
 
 @when("I trigger indexing via REST API again")
@@ -46,9 +56,11 @@ def step_trigger_index_again(context):
 @when("I immediately trigger indexing again")
 def step_trigger_index_immediately(context):
     """Trigger a second index immediately (for concurrency guard test)."""
-    with _http_client(context) as client:
-        resp = client.post("http://localhost/index", json={})
-        context.second_index_response = resp.json()
+    client = _http_client(context)
+    resp = client.post(
+        "/index" if hasattr(context, "server_client") else "http://localhost/index", json={}
+    )
+    context.second_index_response = resp.json()
 
 
 @when("I wait for the index job to complete")
@@ -131,10 +143,15 @@ def step_both_have_job_id(context):
 
 @then("I can retrieve the job detail via REST API")
 def step_get_job_detail(context):
-    with _http_client(context) as client:
-        resp = client.get(f"http://localhost/jobs/{context.last_job_id}")
-        assert resp.status_code == 200
-        context.job_detail = resp.json()
+    client = _http_client(context)
+    path = (
+        f"/jobs/{context.last_job_id}"
+        if hasattr(context, "server_client")
+        else f"http://localhost/jobs/{context.last_job_id}"
+    )
+    resp = client.get(path)
+    assert resp.status_code == 200
+    context.job_detail = resp.json()
 
 
 @then('the job detail contains job_type "{expected}"')
@@ -154,9 +171,9 @@ def step_job_detail_finished_at(context):
 
 @then("the server status has current_job as null")
 def step_status_no_current_job(context):
-    with _http_client(context) as client:
-        resp = client.get("http://localhost/status")
-        data = resp.json()
-        assert data["current_job"] is None, (
-            f"Expected null current_job but got {data['current_job']}"
-        )
+    client = _http_client(context)
+    resp = client.get(
+        "/status" if hasattr(context, "server_client") else "http://localhost/status"
+    )
+    data = resp.json()
+    assert data["current_job"] is None, f"Expected null current_job but got {data['current_job']}"

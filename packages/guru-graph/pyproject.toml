@@ -47,7 +47,8 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 pythonpath = ["src"]
-addopts = "--timeout=60 --timeout-method=thread"
+addopts = "-m 'not compat_socket' --timeout=60 --timeout-method=thread"
 markers = [
+    "compat_socket: tests that require real loopback or AF_UNIX socket binding",
     "real_neo4j: tests that require a running Neo4j 5.x instance (skipped by default)",
 ]

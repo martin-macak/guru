@@ -15,16 +15,24 @@ from behave import given, then, when
 
 
 def _transport(context) -> httpx.HTTPTransport:
+    if hasattr(context, "server_client"):
+        return context.server_client
     socket_path = str(context.project_dir / ".guru" / "guru.sock")
     return httpx.HTTPTransport(uds=socket_path)
 
 
 def _latest_completed_job(context) -> dict | None:
     """Fetch the most recently-completed job via the REST API."""
-    with httpx.Client(transport=_transport(context), timeout=5.0) as client:
-        resp = client.get("http://localhost/status")
+    transport = _transport(context)
+    if hasattr(context, "server_client"):
+        resp = transport.get("/status")
         assert resp.status_code == 200, f"GET /status failed: {resp.status_code}"
         data = resp.json()
+    else:
+        with httpx.Client(transport=transport, timeout=5.0) as client:
+            resp = client.get("http://localhost/status")
+            assert resp.status_code == 200, f"GET /status failed: {resp.status_code}"
+            data = resp.json()
 
     # Extract last_job_* counters from the cache block — populated by
     # guru_server/api/cache.py::_assemble_stats from the registry
@@ -76,7 +84,7 @@ def step_run_index_and_wait(context):
     """Trigger indexing via REST and wait for the job to finish."""
     from environment import _trigger_and_wait_index
 
-    context.last_job_detail = _trigger_and_wait_index(context.project_dir)
+    context.last_job_detail = _trigger_and_wait_index(context)
 
 
 def _last_job_counters(context) -> tuple[int, int]:

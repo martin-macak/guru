@@ -43,12 +43,12 @@ Feature: Parser-emitted and agent-written artifact RELATES links
   # ----------------------------------------------------------------
 
   Scenario: Unknown link kind is rejected with 422 (POST /relates)
-    Given a running guru-graph daemon
+    Given a running FakeBackend-backed graph app
     When I POST /relates with an invalid kind "invented_kind"
     Then the response status is 422
 
   Scenario: Unknown link kind is rejected with 422 (DELETE /relates)
-    Given a running guru-graph daemon
+    Given a running FakeBackend-backed graph app
     When I DELETE /relates with an invalid kind "invented_kind"
     Then the response status is 422
 

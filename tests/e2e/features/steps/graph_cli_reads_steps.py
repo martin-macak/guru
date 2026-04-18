@@ -5,7 +5,7 @@ the installed console-script entrypoint rather than mocking the click
 callback — because BDD acceptance tests need to verify the end-to-end
 user-visible behavior, not just the call graph.
 
-Scenarios tagged @real_neo4j require a running Neo4j (via docker, see
+Scenarios tagged @real_neo4j require a running Neo4j (for example via
 scripts/start-test-neo4j.sh) plus GURU_REAL_NEO4J=1 and
 GURU_NEO4J_BOLT_URI pointed at that Neo4j. They're auto-skipped by the
 before_feature hook in environment.py when that env isn't set.

@@ -5,16 +5,31 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 from behave import given, then, when
+from click.testing import CliRunner
+
+from guru_cli.cli import cli
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _run_cli(args: list[str], cwd: Path) -> tuple[int, str]:
+def _run_cli(context, args: list[str], cwd: Path) -> tuple[int, str]:
     """Invoke the guru CLI in the given working directory."""
+    if hasattr(context, "guru_client"):
+        runner = CliRunner()
+        old_cwd = Path.cwd()
+        try:
+            os.chdir(cwd)
+            with patch("guru_cli.cli._get_client", return_value=context.guru_client):
+                result = runner.invoke(cli, args)
+        finally:
+            os.chdir(old_cwd)
+        return result.exit_code, result.output
+
     result = subprocess.run(
         ["uv", "run", "guru", *args],
         capture_output=True,
@@ -51,6 +66,9 @@ def step_semantic_project_exists(context):
 @given("the guru server is running")
 def step_server_running(context):
     """Server is started in environment.py before_feature."""
+    if hasattr(context, "server_client"):
+        assert context.server_client is not None, "In-process server client was not created"
+        return
     sock = context.project_dir / ".guru" / "guru.sock"
     assert sock.exists(), f"Server socket not found at {sock}"
 
@@ -58,6 +76,9 @@ def step_server_running(context):
 @given("the guru server is running with real embeddings")
 def step_server_running_real(context):
     """Server with real Ollama is started in environment.py before_feature."""
+    if hasattr(context, "server_client"):
+        assert context.server_client is not None, "In-process server client was not created"
+        return
     sock = context.project_dir / ".guru" / "guru.sock"
     assert sock.exists(), f"Server socket not found at {sock}"
 
@@ -67,7 +88,7 @@ def step_index_kb(context):
     """Index the knowledge base via REST API and wait for completion."""
     from environment import _trigger_and_wait_index
 
-    _trigger_and_wait_index(context.project_dir)
+    _trigger_and_wait_index(context)
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +106,7 @@ def step_run_command(context, command):
     assert parts[0] == "guru", f"Expected 'guru' command, got: {parts[0]}"
     args = parts[1:]
 
-    code, out = _run_cli(args, cwd=context.project_dir)
+    code, out = _run_cli(context, args, cwd=context.project_dir)
     context.last_exit_code = code
     context.last_output = out
 
@@ -93,7 +114,7 @@ def step_run_command(context, command):
 @when('I search for "{query}"')
 def step_search(context, query):
     """Run guru search with a multi-word query."""
-    code, out = _run_cli(["search", query], cwd=context.project_dir)
+    code, out = _run_cli(context, ["search", query], cwd=context.project_dir)
     context.last_exit_code = code
     context.last_output = out
 
@@ -101,7 +122,7 @@ def step_search(context, query):
 @when('I list documents and pick the path containing "{fragment}"')
 def step_list_and_pick(context, fragment):
     """Run guru list and extract the file path containing the fragment."""
-    code, out = _run_cli(["list"], cwd=context.project_dir)
+    code, out = _run_cli(context, ["list"], cwd=context.project_dir)
     assert code == 0, f"List failed:\n{out}"
 
     for line in out.splitlines():
@@ -115,7 +136,7 @@ def step_list_and_pick(context, fragment):
 @when('I get the document containing "{fragment}"')
 def step_get_doc_containing(context, fragment):
     """List documents, find one matching fragment, and get its full JSON."""
-    code, list_out = _run_cli(["list"], cwd=context.project_dir)
+    code, list_out = _run_cli(context, ["list"], cwd=context.project_dir)
     assert code == 0, f"List failed:\n{list_out}"
 
     doc_path = None
@@ -125,7 +146,7 @@ def step_get_doc_containing(context, fragment):
             break
     assert doc_path is not None, f"No document containing '{fragment}' in list output:\n{list_out}"
 
-    code, out = _run_cli(["doc", doc_path], cwd=context.project_dir)
+    code, out = _run_cli(context, ["doc", doc_path], cwd=context.project_dir)
     context.last_exit_code = code
     context.last_output = out
 
@@ -218,6 +239,6 @@ def step_search_results_contain_label(context, label):
     assert file_path is not None, f"No file path found in search output:\n{context.last_output}"
 
     # Get the document JSON and check label
-    code, out = _run_cli(["doc", file_path], cwd=context.project_dir)
+    code, out = _run_cli(context, ["doc", file_path], cwd=context.project_dir)
     assert code == 0, f"Failed to get doc {file_path}:\n{out}"
     assert label in out, f"Label '{label}' not found in document for {file_path}:\n{out}"

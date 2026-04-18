@@ -12,8 +12,10 @@ import threading
 import time
 from pathlib import Path
 from pathlib import Path as _Path
+from urllib.parse import quote
 
 import uvicorn
+from fastapi.testclient import TestClient
 
 from guru_server.app import create_app
 from guru_server.config import resolve_config
@@ -366,6 +368,71 @@ def _make_fake_embedder() -> OllamaEmbedder:
     return embedder
 
 
+class _InProcessGuruClient:
+    """Async GuruClient-shaped adapter backed by a FastAPI TestClient."""
+
+    def __init__(self, client: TestClient):
+        self._http = client
+
+    async def status(self) -> dict:
+        return self._http.get("/status").json()
+
+    async def search(self, query: str, n_results: int = 10, filters: dict | None = None) -> list:
+        return self._http.post(
+            "/search",
+            json={"query": query, "n_results": n_results, "filters": filters or {}},
+        ).json()
+
+    async def list_documents(self, filters: dict | None = None) -> list:
+        return self._http.get("/documents", params=filters or None).json()
+
+    async def get_document(self, file_path: str) -> dict:
+        return self._http.get(f"/documents/{quote(file_path, safe='/')}").json()
+
+    async def get_section(self, file_path: str, header_path: str) -> dict:
+        encoded_file = quote(file_path, safe="/")
+        encoded_header = quote(header_path, safe="")
+        return self._http.get(f"/documents/{encoded_file}/sections/{encoded_header}").json()
+
+    async def trigger_index(self) -> dict:
+        return self._http.post("/index", json={}).json()
+
+    async def get_job(self, job_id: str) -> dict:
+        return self._http.get(f"/jobs/{job_id}").json()
+
+    async def cache_info(self) -> dict:
+        return self._http.get("/cache").json()
+
+    async def cache_clear(self, model: str | None = None) -> dict:
+        return self._http.delete("/cache", params={"model": model} if model else None).json()
+
+    async def cache_prune(self, older_than_ms: int) -> dict:
+        return self._http.post("/cache/prune", json={"older_than_ms": older_than_ms}).json()
+
+
+def _start_inprocess_server(
+    project_dir: Path, embedder: OllamaEmbedder
+) -> tuple[TestClient, _InProcessGuruClient]:
+    """Create a guru-server app and expose it via FastAPI TestClient."""
+    config = resolve_config(project_root=project_dir)
+    store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
+
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
+    app = create_app(
+        store=store,
+        embedder=embedder,
+        config=config,
+        project_root=str(project_dir),
+        auto_index=False,
+        embed_cache=embed_cache,
+    )
+    client = TestClient(app)
+    client.__enter__()
+    return client, _InProcessGuruClient(client)
+
+
 def _start_server(
     project_dir: Path, embedder: OllamaEmbedder
 ) -> tuple[uvicorn.Server, threading.Thread]:
@@ -530,41 +597,53 @@ def _start_federation_server(
     return server, thread, registry
 
 
-def _wait_for_index(project_dir: Path, timeout: float = 30.0) -> None:
+def _wait_for_index(project_or_context, timeout: float = 30.0) -> None:
     """Poll the server status until no job is running."""
     import httpx
 
+    context_client = getattr(project_or_context, "server_client", None)
+    project_dir = getattr(project_or_context, "project_dir", project_or_context)
     socket_path = str(project_dir / ".guru" / "guru.sock")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            transport = httpx.HTTPTransport(uds=socket_path)
-            with httpx.Client(transport=transport, timeout=5.0) as client:
-                resp = client.get("http://localhost/status")
-                data = resp.json()
-                if data.get("current_job") is None:
-                    return
+            if context_client is not None:
+                data = context_client.get("/status").json()
+            else:
+                transport = httpx.HTTPTransport(uds=socket_path)
+                with httpx.Client(transport=transport, timeout=5.0) as client:
+                    data = client.get("http://localhost/status").json()
+            if data.get("current_job") is None:
+                return
         except Exception:
             pass
         time.sleep(0.3)
     raise RuntimeError("Index did not complete within timeout")
 
 
-def _trigger_and_wait_index(project_dir: Path, timeout: float = 30.0) -> dict:
+def _trigger_and_wait_index(project_or_context, timeout: float = 30.0) -> dict:
     """Trigger indexing via REST and wait for completion. Returns the job detail."""
     import httpx
 
+    context_client = getattr(project_or_context, "server_client", None)
+    project_dir = getattr(project_or_context, "project_dir", project_or_context)
     socket_path = str(project_dir / ".guru" / "guru.sock")
-    transport = httpx.HTTPTransport(uds=socket_path)
-    with httpx.Client(transport=transport, timeout=5.0) as client:
-        resp = client.post("http://localhost/index", json={})
-        job_data = resp.json()
+    if context_client is not None:
+        job_data = context_client.post("/index", json={}).json()
         job_id = job_data["job_id"]
+    else:
+        transport = httpx.HTTPTransport(uds=socket_path)
+        with httpx.Client(transport=transport, timeout=5.0) as client:
+            resp = client.post("http://localhost/index", json={})
+            job_data = resp.json()
+            job_id = job_data["job_id"]
 
     # Wait for completion
-    _wait_for_index(project_dir, timeout)
+    _wait_for_index(project_or_context, timeout)
 
     # Get final job detail
+    if context_client is not None:
+        return context_client.get(f"/jobs/{job_id}").json()
     transport = httpx.HTTPTransport(uds=socket_path)
     with httpx.Client(transport=transport, timeout=5.0) as client:
         resp = client.get(f"http://localhost/jobs/{job_id}")
@@ -738,7 +817,9 @@ def before_feature(context, feature):
         context.project_dir = _create_standard_project()
         context.embedder = _make_fake_embedder()
 
-    context.server, context.server_thread = _start_server(context.project_dir, context.embedder)
+    context.server_client, context.guru_client = _start_inprocess_server(
+        context.project_dir, context.embedder
+    )
 
 
 def after_feature(context, feature):
@@ -847,6 +928,8 @@ def after_feature(context, feature):
             patcher.stop()
         context._mcp_patcher = None
 
+    if hasattr(context, "server_client"):
+        context.server_client.__exit__(None, None, None)
     if hasattr(context, "server"):
         context.server.should_exit = True
         context.server_thread.join(timeout=5)

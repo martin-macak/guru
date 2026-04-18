@@ -70,11 +70,11 @@ Feature: Agent-writable annotations with closed vocabulary + open tags
     And deleting one of them leaves 2
 
   Scenario: Invalid annotation kind rejected with 422
-    Given a running guru-graph daemon
+    Given a running FakeBackend-backed graph app
     When I POST /annotations with an invalid kind "warning"
     Then the response status is 422
 
   Scenario: Empty annotation body rejected with 422
-    Given a running guru-graph daemon
+    Given a running FakeBackend-backed graph app
     When I POST /annotations with an empty body
     Then the response status is 422

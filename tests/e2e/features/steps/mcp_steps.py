@@ -31,6 +31,8 @@ def _get_mcp_client(context):
     project_dir = context.project_dir
 
     def _patched_get_client():
+        if hasattr(context, "guru_client"):
+            return context.guru_client
         return GuruClient(guru_root=project_dir)
 
     context._mcp_patcher = patch("guru_mcp.server._get_client", _patched_get_client)
@@ -77,7 +79,11 @@ def step_index_via_rest(context):
     """Index the knowledge base by calling the server REST API directly."""
     import time
 
-    client = GuruClient(guru_root=context.project_dir)
+    client = (
+        context.guru_client
+        if hasattr(context, "guru_client")
+        else GuruClient(guru_root=context.project_dir)
+    )
     asyncio.run(client.trigger_index())
 
     # Wait for background indexing to complete
@@ -94,7 +100,11 @@ def step_index_via_rest(context):
 @given('I know the file path of a document matching "{fragment}"')
 def step_find_doc_path(context, fragment):
     """List documents via REST and find one matching the fragment."""
-    client = GuruClient(guru_root=context.project_dir)
+    client = (
+        context.guru_client
+        if hasattr(context, "guru_client")
+        else GuruClient(guru_root=context.project_dir)
+    )
     docs = _run(client.list_documents())
     for doc in docs:
         if fragment in doc["file_path"]:
@@ -111,7 +121,11 @@ def step_find_section_header(context, fragment):
     in the header_breadcrumb. Works with fake embeddings since we
     search with high n_results to get all chunks.
     """
-    client = GuruClient(guru_root=context.project_dir)
+    client = (
+        context.guru_client
+        if hasattr(context, "guru_client")
+        else GuruClient(guru_root=context.project_dir)
+    )
     # Get all chunks — with fake embeddings this returns everything
     results = _run(client.search("a", n_results=100))
     for r in results:

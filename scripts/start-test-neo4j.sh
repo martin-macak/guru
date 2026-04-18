@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Spin up an ephemeral Neo4j 5.x container on the local machine for running
-# @real_neo4j tests without installing Neo4j natively.
+# Spin up an ephemeral native Neo4j on the local machine for running
+# @real_neo4j tests without Docker.
 #
 # Usage:
 #   ./scripts/start-test-neo4j.sh
@@ -9,26 +9,48 @@
 set -euo pipefail
 
 PORT=${PORT:-17687}
-NAME=${NAME:-guru-graph-test-neo4j}
+BASE=${BASE:-/tmp/guru-graph-test-neo4j}
+export PORT BASE
 
-docker rm -f "$NAME" >/dev/null 2>&1 || true
-docker run -d --name "$NAME" \
-  -p "$PORT:7687" \
-  -e NEO4J_AUTH=none \
-  -e NEO4J_PLUGINS='[]' \
-  neo4j:5 >/dev/null
+uv run python - <<'PY'
+from __future__ import annotations
 
-echo "waiting for neo4j on bolt://127.0.0.1:$PORT..."
-for _ in $(seq 1 60); do
-  if docker exec "$NAME" cypher-shell "RETURN 1" >/dev/null 2>&1; then
-    echo "ready (bolt://127.0.0.1:$PORT)"
-    echo ""
-    echo "To run @real_neo4j tests against this container:"
-    echo "  export GURU_NEO4J_BOLT_URI=\"bolt://127.0.0.1:$PORT\""
-    echo "  GURU_REAL_NEO4J=1 uv run pytest packages/guru-graph/ -v"
-    exit 0
-  fi
-  sleep 1
-done
-echo "neo4j did not become ready" >&2
-exit 1
+import os
+import shutil
+import signal
+from pathlib import Path
+
+from guru_graph.neo4j_process import start_neo4j
+from guru_graph.preflight import check_java_installed, check_neo4j_installed
+
+port = int(os.environ["PORT"])
+base = Path(os.environ["BASE"])
+pid_file = base / "neo4j.pid"
+
+if pid_file.exists():
+    try:
+        os.killpg(int(pid_file.read_text(encoding="utf-8").strip()), signal.SIGTERM)
+    except (ProcessLookupError, ValueError):
+        pass
+
+shutil.rmtree(base, ignore_errors=True)
+base.mkdir(parents=True, exist_ok=True)
+
+check_java_installed()
+check_neo4j_installed()
+runtime = start_neo4j(
+    data_dir=base / "data",
+    bolt_port=port,
+    log_file=base / "neo4j.log",
+)
+pid_file.write_text(str(runtime.process.pid), encoding="utf-8")
+
+print(f"ready ({runtime.bolt_uri})")
+print("")
+print("To run @real_neo4j tests against this local Neo4j:")
+print(f'  export GURU_NEO4J_BOLT_URI="{runtime.bolt_uri}"')
+print("  GURU_REAL_NEO4J=1 uv run pytest packages/guru-graph/ -v")
+print("")
+print("To stop it later:")
+print(f"  kill -TERM -- -$(cat {pid_file})")
+PY

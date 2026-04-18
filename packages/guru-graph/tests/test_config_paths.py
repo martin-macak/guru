@@ -3,6 +3,8 @@ from __future__ import annotations
 import socket
 from pathlib import Path
 
+import pytest
+
 from guru_graph.config import GraphPaths, allocate_free_loopback_port
 
 
@@ -28,6 +30,7 @@ def test_graph_paths_default_respects_platform():
     assert paths.socket.name == "graph.sock"
 
 
+@pytest.mark.compat_socket
 def test_allocate_free_port_returns_usable():
     port = allocate_free_loopback_port()
     assert 1024 <= port <= 65535
