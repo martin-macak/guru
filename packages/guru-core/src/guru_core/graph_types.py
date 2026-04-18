@@ -111,30 +111,6 @@ class QueryResult(BaseModel):
     elapsed_ms: float
 
 
-class GraphEdgePayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    from_id: str
-    to_id: str
-    rel_type: str
-    kind: str | None = None
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class GraphNodePayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    node_id: str
-    label: str
-    properties: dict[str, Any] = Field(default_factory=dict)
-
-
-class ParseResultPayload(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-    chunks_count: int = 0
-    document: GraphNodePayload
-    nodes: list[GraphNodePayload] = Field(default_factory=list)
-    edges: list[GraphEdgePayload] = Field(default_factory=list)
-
-
 class ArtifactNode(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str

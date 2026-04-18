@@ -277,41 +277,6 @@ class Neo4jBackend:
                 for r in rs
             ]
 
-    # ---- Declarative artifact-read helpers (called by ArtifactService) ----
-    def get_artifact(self, node_id: str) -> dict[str, Any] | None:
-        with self._driver.session() as s:
-            rec = s.run(
-                """
-                MATCH (n {id: $node_id})
-                WHERE NOT n:Kb AND NOT n:_Meta
-                RETURN n.id AS id,
-                       head([label IN labels(n) WHERE NOT label IN ['Kb', '_Meta']]) AS label,
-                       properties(n) AS properties
-                """,
-                parameters={"node_id": node_id},
-            ).single()
-            if rec is None:
-                return None
-            return {
-                "id": rec["id"],
-                "label": rec["label"],
-                "properties": dict(rec["properties"] or {}),
-            }
-
-    def upsert_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
-        graph_label = _cypher_identifier(label)
-        with self._driver.session() as s:
-            s.run(
-                f"""
-                MERGE (n:{graph_label} {{id: $node_id}})
-                SET n += $properties
-                """,
-                parameters={
-                    "node_id": node_id,
-                    "properties": properties,
-                },
-            )
-
     def upsert_artifact_edge(
         self,
         *,
@@ -338,23 +303,6 @@ class Neo4jBackend:
                 },
             )
 
-    def delete_artifact(self, node_id: str) -> bool:
-        with self._driver.session() as s:
-            rec = s.run(
-                """
-                MATCH (root {id: $node_id})
-                WHERE NOT root:Kb AND NOT root:_Meta
-                OPTIONAL MATCH (root)-[:CONTAINS*0..]->(n)
-                WITH collect(DISTINCT n) AS targets
-                UNWIND targets AS target
-                WITH DISTINCT target WHERE target IS NOT NULL
-                DETACH DELETE target
-                RETURN count(target) AS deleted
-                """,
-                parameters={"node_id": node_id},
-            ).single()
-            return bool(rec and rec["deleted"])
-
     def list_artifact_neighbors(
         self,
         *,
@@ -365,7 +313,7 @@ class Neo4jBackend:
         depth: int,
         limit: int,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        root = self.get_artifact(node_id)
+        root = self.get_artifact(node_id=node_id)
         if root is None:
             return [], []
 
@@ -778,60 +726,6 @@ class Neo4jBackend:
                 }
                 for r in rs
             ]
-
-    def find_artifacts(
-        self,
-        *,
-        name: str | None,
-        qualname_prefix: str | None,
-        label: str | None,
-        tag: str | None,
-        kb_name: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"limit": limit}
-        if label is not None:
-            if label != "Document" and label not in ALLOWED_ARTIFACT_LABELS:
-                raise ValueError(f"unknown artifact label: {label!r}")
-            match_clause = f"MATCH (n:{label})"
-        else:
-            match_clause = "MATCH (n)"
-        filters: list[str] = []
-        if name is not None:
-            filters.append("n.name = $name")
-            params["name"] = name
-        if qualname_prefix is not None:
-            filters.append("n.qualname STARTS WITH $qualname_prefix")
-            params["qualname_prefix"] = qualname_prefix
-        if tag is not None:
-            filters.append("$tag IN n.tags")
-            params["tag"] = tag
-        if kb_name is not None:
-            filters.append("n.kb_name = $kb_name")
-            params["kb_name"] = kb_name
-        # Always filter out schema/meta nodes.
-        filters.append("NOT any(lbl IN labels(n) WHERE lbl STARTS WITH '_')")
-        where = "WHERE " + " AND ".join(filters)
-        cypher = (
-            f"{match_clause} {where} "
-            "RETURN n.id AS id, labels(n) AS labels, properties(n) AS props "
-            "LIMIT $limit"
-        )
-        with self._driver.session() as s:
-            rs = s.run(cypher, parameters=params)
-            out: list[dict[str, Any]] = []
-            for r in rs:
-                labels = [lbl for lbl in (r["labels"] or []) if not lbl.startswith("_")]
-                if not labels:
-                    continue
-                out.append(
-                    {
-                        "id": r["id"],
-                        "label": labels[0],
-                        "properties": dict(r["props"] or {}),
-                    }
-                )
-            return out
 
     def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]:
         with self._driver.session() as s:
