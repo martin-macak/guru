@@ -627,7 +627,14 @@ def before_feature(context, feature):
     # Graph plugin scenarios are self-contained — they use GraphClient or a
     # FakeBackend directly rather than needing a default guru-server startup.
     # Skip the normal server-bootstrap path.
-    if "graph_plugin" in feature.filename or "graph_cli_reads" in feature.filename:
+    # annotations_and_curation + orphan_triage follow the same pattern: only
+    # guru-graph daemon needed, seeded via submit_parse_result.
+    if (
+        "graph_plugin" in feature.filename
+        or "graph_cli_reads" in feature.filename
+        or "annotations_and_curation" in feature.filename
+        or "orphan_triage" in feature.filename
+    ):
         import os as _os
         import tempfile as _tempfile
 
@@ -744,7 +751,12 @@ def after_feature(context, feature):
         os.environ.pop("GURU_EMBED_CACHE_PATH", None)
         return
 
-    if "graph_plugin" in feature.filename or "graph_cli_reads" in feature.filename:
+    if (
+        "graph_plugin" in feature.filename
+        or "graph_cli_reads" in feature.filename
+        or "annotations_and_curation" in feature.filename
+        or "orphan_triage" in feature.filename
+    ):
         import contextlib as _ctx
         import os as _os
         import shutil as _shutil
