@@ -254,3 +254,37 @@ class ReattachRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     new_node_id: str
+
+
+# --- Artifact RELATES link types ---
+
+
+class ArtifactLinkCreate(BaseModel):
+    """Request body for POST /relates."""
+
+    model_config = ConfigDict(extra="forbid")
+    from_id: str
+    to_id: str
+    kind: ArtifactLinkKind
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactLink(BaseModel):
+    """Wire representation of a RELATES edge returned by the graph daemon."""
+
+    model_config = ConfigDict(extra="ignore")
+    from_id: str
+    to_id: str
+    kind: ArtifactLinkKind
+    created_at: datetime
+    author: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ArtifactUnlink(BaseModel):
+    """Request body for DELETE /relates."""
+
+    model_config = ConfigDict(extra="forbid")
+    from_id: str
+    to_id: str
+    kind: ArtifactLinkKind
