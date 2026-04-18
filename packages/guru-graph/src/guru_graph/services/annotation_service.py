@@ -49,6 +49,8 @@ class AnnotationService:
             raise TargetNotFoundError(f"target {req.node_id!r} not found")
 
         props = target["properties"]
+        # breadcrumb is None when the target has no breadcrumb/qualname/name
+        # property — downstream consumers (orphan-triage UIs) must handle null.
         target_snapshot = json.dumps(
             {
                 "target_id": req.node_id,
@@ -62,6 +64,10 @@ class AnnotationService:
         if req.kind == AnnotationKind.SUMMARY:
             # Reuse the existing summary's annotation_id if one exists so that
             # replace_summary_annotation can find and update it in-place.
+            # Non-atomic read-then-upsert: two concurrent SUMMARY creates against
+            # the same target could each see no existing summary and produce
+            # duplicates. Acceptable given guru-server's local-first/single-user
+            # model; revisit if concurrency semantics change.
             existing_summaries = [
                 a
                 for a in self._backend.list_annotations_for(node_id=req.node_id)

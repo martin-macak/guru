@@ -158,3 +158,51 @@ def test_reattach_rejects_missing_new_target():
     svc = AnnotationService(backend=backend)
     with pytest.raises(TargetNotFoundError):
         svc.reattach(annotation_id="some-id", new_node_id="kb::nowhere")
+
+
+def test_create_preserves_tags():
+    backend = FakeBackend()
+    backend.start()
+    _seed_target(backend)
+    svc = AnnotationService(backend=backend)
+    result = svc.create(
+        AnnotationCreate(
+            node_id="kb::UserService",
+            kind=AnnotationKind.NOTE,
+            body="x",
+            tags=["perf", "latency"],
+        ),
+        author="agent:test",
+    )
+    assert result.tags == ["perf", "latency"]
+
+
+def test_list_orphans_respects_limit():
+    backend = FakeBackend()
+    backend.start()
+    _seed_target(backend)
+    svc = AnnotationService(backend=backend)
+    for i in range(3):
+        svc.create(
+            AnnotationCreate(node_id="kb::UserService", kind=AnnotationKind.NOTE, body=f"n{i}"),
+            author="agent:test",
+        )
+    backend.orphan_annotations_for(node_ids=["kb::UserService"])
+    assert len(svc.list_orphans(limit=2)) == 2
+    assert len(svc.list_orphans(limit=10)) == 3
+
+
+def test_reattach_non_orphaned_returns_false():
+    backend = FakeBackend()
+    backend.start()
+    _seed_target(backend)
+    backend.upsert_artifact(
+        node_id="kb::AccountService", label="Class", properties={"kb_name": "kb"}
+    )
+    svc = AnnotationService(backend=backend)
+    node = svc.create(
+        AnnotationCreate(node_id="kb::UserService", kind=AnnotationKind.NOTE, body="x"),
+        author="agent:test",
+    )
+    # Still attached — reattach should be a no-op returning False.
+    assert svc.reattach(annotation_id=node.id, new_node_id="kb::AccountService") is False
