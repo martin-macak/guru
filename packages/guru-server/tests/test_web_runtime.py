@@ -10,9 +10,14 @@ import httpx
 import uvicorn
 
 from guru_core.types import GraphConfig, GuruConfig
+from guru_server import web_runtime as web_runtime_module
 from guru_server.app import create_app
 from guru_server.config import load_config, resolve_config, resolve_web_config
-from guru_server.web_runtime import bind_web_listener_sockets, build_web_runtime
+from guru_server.web_runtime import (
+    bind_web_listener_sockets,
+    build_web_runtime,
+    resolve_web_assets_dir,
+)
 
 
 def test_resolve_web_config_defaults_when_config_has_no_web():
@@ -99,6 +104,26 @@ def test_existing_assets_allocate_localhost_port(tmp_path: Path):
     assert runtime.assets_dir == assets_dir
     assert runtime.reason is None
     assert runtime.auto_open is True
+
+
+def test_resolve_web_assets_dir_uses_packaged_assets_when_repo_dist_is_missing(
+    tmp_path: Path, monkeypatch
+):
+    packaged_assets = tmp_path / "site-packages" / "guru_server" / "web_assets"
+    packaged_assets.mkdir(parents=True)
+    (packaged_assets / "index.html").write_text("<html><body>Packaged Guru Web</body></html>")
+
+    monkeypatch.delenv("GURU_WEB_DIST_DIR", raising=False)
+    monkeypatch.setattr(web_runtime_module, "_packaged_web_assets_dir", lambda: packaged_assets)
+    monkeypatch.setattr(
+        web_runtime_module,
+        "_workspace_web_assets_dir",
+        lambda: tmp_path / "missing-workspace-dist",
+    )
+
+    resolved = resolve_web_assets_dir(tmp_path / "project-without-dist")
+
+    assert resolved == packaged_assets.resolve()
 
 
 def test_web_runtime_listener_serves_frontend_and_boot(tmp_path: Path):

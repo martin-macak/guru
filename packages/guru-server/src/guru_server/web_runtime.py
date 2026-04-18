@@ -22,6 +22,14 @@ def _has_built_assets(assets_dir: Path) -> bool:
     return assets_dir.is_dir() and (assets_dir / "index.html").is_file()
 
 
+def _packaged_web_assets_dir() -> Path:
+    return Path(__file__).resolve().parent / "web_assets"
+
+
+def _workspace_web_assets_dir() -> Path:
+    return Path(__file__).resolve().parents[4] / "packages" / "guru-web" / "dist"
+
+
 def resolve_web_assets_dir(project_root: Path) -> Path:
     candidates: list[Path] = []
 
@@ -30,8 +38,9 @@ def resolve_web_assets_dir(project_root: Path) -> Path:
         candidates.append(Path(override).expanduser())
 
     project_dist = project_root / "packages" / "guru-web" / "dist"
-    workspace_dist = Path(__file__).resolve().parents[4] / "packages" / "guru-web" / "dist"
-    for candidate in (project_dist, workspace_dist):
+    packaged_dist = _packaged_web_assets_dir()
+    workspace_dist = _workspace_web_assets_dir()
+    for candidate in (project_dist, packaged_dist, workspace_dist):
         if candidate not in candidates:
             candidates.append(candidate)
 
