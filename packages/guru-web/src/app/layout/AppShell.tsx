@@ -3,6 +3,8 @@ import { NavLink } from "react-router-dom";
 import { Inspector } from "../../features/inspector/Inspector";
 import { InvestigatePage } from "../../features/investigate/InvestigatePage";
 import { KnowledgeTree } from "../../features/knowledge-tree/KnowledgeTree";
+import { OperatePage } from "../../features/operate/OperatePage";
+import { QueryPage } from "../../features/query/QueryPage";
 import { useWorkbench } from "../../lib/state/workbench";
 import { surfaceLabels, surfaceToPath, workbenchSurfaces } from "../../lib/state/url";
 import { cn } from "../../lib/utils";
@@ -15,10 +17,18 @@ const surfaceDescriptions = {
 } as const;
 
 function SurfaceContent() {
-  const { surface } = useWorkbench();
+  const { boot, surface } = useWorkbench();
 
   if (surface === "investigate") {
     return <InvestigatePage />;
+  }
+
+  if (surface === "query") {
+    return <QueryPage />;
+  }
+
+  if (surface === "operate") {
+    return <OperatePage runtime={boot} />;
   }
 
   return (

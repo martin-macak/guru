@@ -15,6 +15,8 @@ export type BootPayload = {
   };
 };
 
+export type RuntimeStatusSnapshot = Pick<BootPayload, "project" | "web" | "graph">;
+
 function resolveBootUrl(): string {
   const apiBaseUrl = import.meta.env.VITE_GURU_API_BASE_URL?.trim();
 
