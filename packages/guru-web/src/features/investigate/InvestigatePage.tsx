@@ -62,7 +62,7 @@ export function InvestigatePage() {
         </section>
 
         <aside className="rounded-[1.75rem] border border-slate-200 bg-white p-4">
-          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Preview</h3>
+          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">Inspector</h3>
           <p className="mt-3 text-sm text-slate-600">
             Select a document or artifact to inspect its metadata.
           </p>

@@ -32,6 +32,7 @@ test("renders search box and result panels", () => {
 
   expect(screen.getByPlaceholderText("Search knowledge base")).toBeInTheDocument();
   expect(screen.getByRole("heading", { name: "Results" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Inspector" })).toBeInTheDocument();
   expect(screen.getByText("Select a document or artifact to inspect its metadata.")).toBeInTheDocument();
 });
 
@@ -39,7 +40,7 @@ test("keeps knowledge tree and inspector in sync with shared selection", () => {
   renderWithWorkbench(<AppShell />);
 
   expect(screen.getByRole("heading", { name: "Knowledge Tree" })).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Inspector" })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { name: "Inspector" })).toHaveLength(2);
 
   fireEvent.click(screen.getByRole("button", { name: /^Artifact Graph Plan document$/i }));
   expect(screen.getByText("Document")).toBeInTheDocument();
