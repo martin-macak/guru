@@ -58,6 +58,8 @@ Configuration precedence: `./.guru.json` > `./guru.json` (legacy) > `./.guru/con
 
 Refresh the agent skill after a `guru` upgrade with `guru update` (use `--dry-run` first; `--force` overwrites user-customised files after backing them up).
 
+Full usage manual — what gets indexed, hybrid search, the graph plugin, curating annotations and links, federation, FAQ, troubleshooting: [USAGE.md](USAGE.md).
+
 ## MCP integration
 
 After `guru init`, your `.mcp.json` is configured automatically. AI agents that support MCP (Claude Code, Cursor, Continue.dev) will discover the guru tools.
