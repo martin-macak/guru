@@ -22,12 +22,12 @@ from .graph_errors import GraphUnavailable
 from .graph_types import (
     AnnotationCreate,
     AnnotationNode,
-    ArtifactFindQuery,  # used at runtime in find_artifacts body
+    ArtifactFindQuery,
     ArtifactLink,
     ArtifactLinkCreate,
     ArtifactLinkKind,
-    ArtifactNeighborsResult,  # used at runtime in neighbors body
-    ArtifactNode,  # used at runtime in describe_artifact/find_artifacts bodies
+    ArtifactNeighborsResult,
+    ArtifactNode,
     CypherQuery,
     Health,
     KbLink,
@@ -319,7 +319,7 @@ class GraphClient:
         """Walk neighbors of `node_id` up to `depth` hops, filtered by direction/rel_type/kind."""
         qs = f"?direction={direction}&rel_type={rel_type}&depth={depth}&limit={limit}"
         if kind:
-            qs += f"&kind={quote(kind)}"
+            qs += f"&kind={quote(kind, safe='')}"
         resp = await self._request("GET", f"/artifacts/{quote(node_id, safe='')}/neighbors{qs}")
         if resp.status_code != 200:
             raise GraphUnavailable(
