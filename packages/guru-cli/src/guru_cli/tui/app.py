@@ -94,8 +94,9 @@ class WorkbenchApp(App[None]):
         if event.input.id != "investigation-input" or self._investigate is None:
             return
         self._state, hits = await self._investigate.search(self._state, event.value)
-        lines = [hit.title or hit.file_path for hit in hits]
-        self.query_one("#results", Static).update("\n".join(lines))
+        first_hit = hits[0] if hits else None
+        content = (first_hit.title or first_hit.file_path) if first_hit is not None else ""
+        self.query_one("#results", Static).update(content)
         event.input.disabled = True
         self.set_focus(None)
 

@@ -20,7 +20,15 @@ async def test_investigate_mode_shows_search_hits():
             "score": 0.91,
             "labels": ["documentation"],
             "chunk_level": 1,
-        }
+        },
+        {
+            "file_path": "docs/oauth.md",
+            "header_breadcrumb": "OAuth Internals",
+            "content": "OAuth internal details",
+            "score": 0.52,
+            "labels": ["reference"],
+            "chunk_level": 1,
+        },
     ]
     guru_client.list_documents.return_value = [{"file_path": "docs/auth.md", "chunk_count": 3}]
     session = GuruSession(guru_client=guru_client, graph_client=graph_client)
@@ -30,7 +38,7 @@ async def test_investigate_mode_shows_search_hits():
         await pilot.press("/")
         await pilot.press("O", "A", "u", "t", "h", "enter")
         results = app.query_one("#results")
-        assert "Authentication" in results.renderable.plain
+        assert results.renderable.plain == "Authentication"
 
 
 @pytest.mark.asyncio
