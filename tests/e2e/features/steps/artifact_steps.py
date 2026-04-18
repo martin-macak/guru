@@ -108,6 +108,8 @@ def step_copy_fixture(context, name):
     src = _FIXTURES_DIR / name
     assert src.is_dir(), f"Fixture {name!r} not found at {src}"
 
+    # Short /tmp path keeps UDS socket paths under the macOS 104-byte
+    # AF_UNIX limit. Matches the convention in tests/e2e/features/environment.py.
     tmp_root = Path(tempfile.mkdtemp(prefix=f"g_{name}_", dir="/tmp"))
     dst = tmp_root / name
     shutil.copytree(src, dst)
