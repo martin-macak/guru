@@ -50,3 +50,14 @@ Feature: Parser-emitted and agent-written artifact RELATES links
     Given a running guru-graph daemon
     When I DELETE /relates with an invalid kind "invented_kind"
     Then the response status is 422
+
+  # ----------------------------------------------------------------
+  # MCP-shaped error contract — deferred to PR-5 (graph_link tool).
+  # The HTTP /relates 422 above is the PR-4-runnable equivalent.
+  # ----------------------------------------------------------------
+
+  @skip_until_pr5
+  Scenario: Unknown link kind is rejected via the MCP tool
+    Given a Claude-Code-style MCP session is connected
+    When agent calls graph_link(kind="invented_kind", ...)
+    Then the MCP tool returns {"error":"invalid_request","detail":"kind must be one of imports/inherits_from/implements/calls/references/documents"}
