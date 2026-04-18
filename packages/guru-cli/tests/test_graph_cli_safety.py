@@ -39,13 +39,38 @@ def test_no_mutation_subcommands_registered():
 
 def test_graph_group_only_contains_expected_subcommands():
     """Whitelist — accept only lifecycle + read commands."""
-    allowed = {"start", "stop", "status", "kbs", "kb", "links", "query"}
+    allowed = {
+        "start",
+        "stop",
+        "status",
+        "kbs",
+        "kb",
+        "links",
+        "query",
+        "describe",
+        "neighbors",
+        "find",
+        "annotations",
+        "orphans",
+    }
     names = set(graph_group.commands.keys())
     unexpected = names - allowed
     assert unexpected == set(), (
         f"Unexpected subcommand(s) in 'guru graph': {unexpected}. "
         "Add to the whitelist only if intentional."
     )
+
+
+def test_no_write_subcommands_in_graph_group():
+    """Belt-and-braces: the read-only set must NOT include any write verbs.
+
+    These names are the things an agent would invoke via MCP. The CLI is
+    deliberately read-only — writes go through MCP only.
+    """
+    forbidden = {"annotate", "link", "unlink", "delete-annotation", "reattach-orphan"}
+    names = set(graph_group.commands.keys())
+    intersection = names & forbidden
+    assert intersection == set(), f"forbidden write subcommand(s) found: {intersection}"
 
 
 def test_query_callback_hard_codes_read_only_true():
