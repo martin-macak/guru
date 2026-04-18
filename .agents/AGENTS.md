@@ -40,19 +40,20 @@ the change must be rejected or the constitution must be amended first.
 
 ## Project Structure
 
-This is a uv workspace monorepo with four packages under `packages/`:
+This is a uv workspace monorepo with five packages under `packages/`:
 
-- **guru-core**: Shared client SDK (discovery, auto-start, HTTP-over-UDS client, types)
-- **guru-server**: FastAPI daemon that owns all state (LanceDB, Ollama, ingestion)
+- **guru-core**: Shared client SDK (discovery, auto-start, HTTP-over-UDS client, types, `GraphClient`)
+- **guru-server**: FastAPI daemon that owns all **per-project** state (LanceDB, Ollama, ingestion)
 - **guru-mcp**: MCP protocol adapter (thin client, FastMCP, stdio)
 - **guru-cli**: CLI (click) + TUI (Textual)
+- **guru-graph**: Optional machine-wide graph plugin daemon (FastAPI-over-UDS, Neo4j backend). Enabled by default; opt-out via `graph.enabled=false` in config. See `ARCHITECTURE.md` → Graph Plugin.
 
 ## Key Rules
 
 - guru-server is the ONLY component that accesses LanceDB or Ollama
+- guru-graph is the ONLY component that accesses Neo4j
 - guru-mcp and guru-cli are thin clients — they talk to the server via guru-core
-- Transport is HTTP over Unix domain socket at `.guru/guru.sock`
-- No TCP ports are used
+- Transport is HTTP over Unix domain socket at `.guru/guru.sock` (guru-server) and `$GURU_GRAPH_HOME/graph.sock` (guru-graph). Neo4j's Bolt port is an exception (loopback TCP only); see ARCHITECTURE.md.
 - `.guru/` is runtime state, always gitignored
 - `guru.json` is project config, version-controlled
 
@@ -62,6 +63,8 @@ This is a uv workspace monorepo with four packages under `packages/`:
 guru-cli    -> guru-core
 guru-mcp    -> guru-core
 guru-server -> guru-core (shared types only)
+guru-graph  -> guru-core
+guru-server -> guru-graph (runtime-only, over UDS via GraphClient in guru-core)
 guru-core   -> httpx
 ```
 
@@ -91,6 +94,7 @@ uv run guru-mcp                 # run MCP server (stdio)
 make help                       # list all available targets
 make test                       # unit + integration tests (fast)
 make test-all                   # unit + integration + e2e tests
+make test-graph                 # graph plugin tests (requires Neo4j + GURU_REAL_NEO4J=1)
 make build                      # build all 5 wheels into dist/
 make lint                       # check code style
 make fmt                        # auto-fix + format
@@ -178,11 +182,19 @@ uv run behave tests/e2e/features/        # run BDD e2e tests (serial)
   - `mcp_tools.feature` — MCP protocol tools via FastMCP in-memory Client
   - `semantic_search.feature` (`@real_ollama`) — real Ollama embeddings, verifies
     semantic retrieval accuracy and config-driven labeling
+  - `graph_plugin.feature` (partly `@real_neo4j`) — optional graph daemon
+    lifecycle, opt-in/opt-out, protocol versioning, KB registration
+  - `graph_cli_reads.feature` (partly `@real_neo4j`) — `guru graph {kbs, kb,
+    links, query}` read-only CLI subcommands, including the never-expose-writes
+    invariant and the `daemon: unreachable` error path
 
 ### Conventions
 - All major features must have BDD feature specs before implementation
 - Feature files are acceptance criteria — they are part of the specification
 - `@real_ollama` tag marks tests requiring a running Ollama instance
+- `@real_neo4j` tag marks tests requiring a running Neo4j. Skipped unless
+  `GURU_REAL_NEO4J=1`. CI provides one via a `neo4j:5` service container.
+  For local dev: `./scripts/start-test-neo4j.sh` + `GURU_NEO4J_BOLT_URI=bolt://127.0.0.1:17687`.
 - pytest `@pytest.mark.slow` tests are skipped by default (run with `-m slow`)
 
 ## CI (GitHub Actions)

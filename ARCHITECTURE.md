@@ -104,7 +104,11 @@ packages/
 
 ## Graph Plugin (optional)
 
-- An optional `guru-graph` package ships in the workspace as a peer of `guru-server`. It is **disabled by default**; users enable it via `~/.config/guru/config.json → graph.enabled = true`.
-- When enabled, a single machine-wide daemon is lazy-started by any guru-server. It owns a Neo4j Community subprocess. All guru-servers on the machine share it.
-- The graph is strictly an augmentation. When the graph is disabled, unreachable, or failing, guru-server MUST continue to serve the user with reduced accuracy; graph failures never propagate to the end user.
+- An optional `guru-graph` package ships in the workspace as a peer of `guru-server`. It is **enabled by default**; users opt OUT by setting `~/.config/guru/config.json → graph.enabled = false` (or the same key in a project-level `.guru.json`).
+- When enabled, a single machine-wide daemon is lazy-started by any guru-server. All guru-servers on the machine share it.
+- The daemon runs in one of two modes:
+  - **Subprocess mode** (default): `guru-graph` spawns and owns a Neo4j Community subprocess.
+  - **Connect-only mode**: when `GURU_NEO4J_BOLT_URI` is set, the daemon skips preflight + spawn and connects to an externally-managed Neo4j (docker service, shared cluster, etc.). CI uses this.
+- The graph is strictly an augmentation. When the graph is disabled, unreachable, or failing, guru-server MUST continue to serve the user with reduced accuracy; graph failures never propagate to the end user (`graph_or_skip` in guru-server swallows all `GraphUnavailable`).
 - Clients never talk to Neo4j directly — only to `guru-graph` over UDS. Protocol and schema versions are negotiated per `docs/superpowers/specs/2026-04-17-graph-plugin-design.md` §Schema, versioning & compatibility.
+- Read-only CLI debugging commands are available: `guru graph kbs`, `guru graph kb <name>`, `guru graph links <name>`, `guru graph query '<cypher>'`. Writes are deliberately **not** exposed via CLI — mutations go through the HTTP API or `GraphClient` only. See `docs/superpowers/specs/2026-04-18-graph-readonly-cli-design.md`.
