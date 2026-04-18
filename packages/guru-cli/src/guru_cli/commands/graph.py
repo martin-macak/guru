@@ -281,3 +281,19 @@ def kbs(prefix: str | None, tag: str | None, as_json: bool, no_truncate: bool) -
         )
     else:
         click.echo(_render_kbs_table(nodes, truncate=not no_truncate))
+
+
+@graph_group.command(name="kb")
+@click.argument("name")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit the KbNode as JSON.")
+def kb(name: str, as_json: bool) -> None:
+    """Show a single KB node."""
+    client = _client()
+    node = _handle_graph_errors(client.get_kb(name))
+    if node is None:
+        click.echo(f"KB {name!r} not found", err=True)
+        sys.exit(1)
+    if as_json:
+        click.echo(_json.dumps(node.model_dump(mode="json"), indent=2, default=str))
+    else:
+        click.echo(_render_kb_kv(node))

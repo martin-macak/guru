@@ -224,3 +224,31 @@ def test_kbs_graph_unavailable(runner, mock_client):
     assert result.exit_code == 1
     # click's CliRunner merges stderr into output by default
     assert "daemon: unreachable" in result.output
+
+
+# ---- Task 4: guru graph kb NAME ----
+
+
+def test_kb_show_existing_text(runner, mock_client):
+    mock_client.get_kb = AsyncMock(
+        return_value=_kb("alpha", tags=["app"], metadata={"lang": "python"})
+    )
+    result = runner.invoke(graph_group, ["kb", "alpha"])
+    assert result.exit_code == 0, result.output
+    assert "name:" in result.output and "alpha" in result.output
+    assert "lang" in result.output and "python" in result.output
+    mock_client.get_kb.assert_awaited_once_with("alpha")
+
+
+def test_kb_show_missing_exits_1(runner, mock_client):
+    mock_client.get_kb = AsyncMock(return_value=None)
+    result = runner.invoke(graph_group, ["kb", "ghost"])
+    assert result.exit_code == 1
+    assert "not found" in result.output.lower()
+
+
+def test_kb_show_json(runner, mock_client):
+    mock_client.get_kb = AsyncMock(return_value=_kb("alpha"))
+    result = runner.invoke(graph_group, ["kb", "alpha", "--json"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["name"] == "alpha"
