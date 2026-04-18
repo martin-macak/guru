@@ -11,11 +11,18 @@ import numpy as np
 from guru_core.types import GuruConfig, Rule
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.ingestion.markdown import MarkdownParser
+from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import Job
 from guru_server.manifest import FileManifest
 from guru_server.storage import VectorStore
 
 logger = logging.getLogger(__name__)
+
+
+def _default_registry() -> ParserRegistry:
+    reg = ParserRegistry()
+    reg.register(MarkdownParser())
+    return reg
 
 
 def _file_hash(path: Path) -> str:
@@ -53,15 +60,18 @@ class BackgroundIndexer:
         embedder,
         config: GuruConfig,
         project_root: Path,
+        kb_name: str,
         embed_cache: EmbeddingCache | None = None,
+        parser_registry: ParserRegistry | None = None,
     ) -> None:
         self._store = store
         self._manifest = manifest
         self._embedder = embedder
         self._config = config
         self._project_root = Path(project_root).resolve()
-        self._parser = MarkdownParser()
+        self._registry = parser_registry or _default_registry()
         self._cache = embed_cache
+        self._kb_name = kb_name
 
     async def run(self, job: Job) -> None:
         """Execute a two-phase indexing job."""
@@ -167,7 +177,7 @@ class BackgroundIndexer:
                     continue
                 if file_path in seen_files:
                     continue
-                if not self._parser.supports(file_path):
+                if self._registry.dispatch(file_path) is None:
                     continue
                 rel_path = str(file_path.relative_to(self._project_root))
                 if git_paths is not None and rel_path not in git_paths:
@@ -221,7 +231,12 @@ class BackgroundIndexer:
         content_hash = _file_hash(file_path)
         current_mtime = file_path.stat().st_mtime
 
-        chunks = self._parser.parse(file_path, rule)
+        parser = self._registry.dispatch(file_path)
+        assert parser is not None, f"no parser for {file_path} — discovery should have filtered it"
+        parse_result = parser.parse(file_path, rule, kb_name=self._kb_name)
+        chunks = parse_result.chunks
+        # parse_result.document/nodes/edges are captured but discarded in PR-1 —
+        # PR-2 wires them into graph ingestion via graph_or_skip.
         for chunk in chunks:
             chunk.file_path = rel_path
 

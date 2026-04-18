@@ -13,6 +13,8 @@ from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.graph_integration import build_graph_client_if_enabled, register_self_kb
 from guru_server.indexer import BackgroundIndexer
+from guru_server.ingestion.markdown import MarkdownParser
+from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
 from guru_server.storage import VectorStore
@@ -149,6 +151,16 @@ def create_app(
     else:
         app.state.manifest = None
 
+    app.state.project_name = (
+        project_name or app.state.config.name or Path(app.state.project_root).name
+    )
+
+    # Build parser registry — the extension point for ingestion formats.
+    # Future parsers (Python, OpenAPI) register here with no core change.
+    parser_registry = ParserRegistry()
+    parser_registry.register(MarkdownParser())
+    app.state.parser_registry = parser_registry
+
     # Create indexer if we have all dependencies
     if store is not None and embedder is not None and app.state.manifest is not None:
         app.state.indexer = BackgroundIndexer(
@@ -157,7 +169,9 @@ def create_app(
             embedder=embedder,
             config=app.state.config,
             project_root=Path(app.state.project_root),
+            kb_name=app.state.project_name,
             embed_cache=embed_cache,
+            parser_registry=parser_registry,
         )
     else:
         app.state.indexer = None
@@ -165,9 +179,6 @@ def create_app(
     graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
     app.state.graph_enabled = graph_enabled
     app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
-    app.state.project_name = (
-        project_name or app.state.config.name or Path(app.state.project_root).name
-    )
 
     app.include_router(api_router)
     return app

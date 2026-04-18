@@ -56,6 +56,40 @@ class VectorStore:
                     )
                 self._table = None
                 return None
+
+            # Schema evolution: add PR-1 artifact-graph metadata columns if missing.
+            # Existing .guru/ databases created before this PR lack 'kind' and the
+            # other three columns.
+            schema_names = set(self._table.schema.names)
+            if "kind" not in schema_names and self._table.count_rows() > 0:
+                logger.info(
+                    "Extending existing LanceDB table '%s' with artifact-graph metadata columns",
+                    TABLE_NAME,
+                )
+                try:
+                    self._table.add_columns(
+                        {
+                            "kind": '"text"',
+                            "language": '""',
+                            "artifact_qualname": '""',
+                            "parent_document_id": '""',
+                        }
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "add_columns failed on table '%s' (%s) — re-materialising from current rows",
+                        TABLE_NAME,
+                        exc,
+                    )
+                    # Fallback: drop + recreate with the evolved schema.
+                    existing_rows = self._table.to_pandas().to_dict(orient="records")
+                    for r in existing_rows:
+                        r.setdefault("kind", "text")
+                        r.setdefault("language", "")
+                        r.setdefault("artifact_qualname", "")
+                        r.setdefault("parent_document_id", "")
+                    self.db.drop_table(TABLE_NAME)
+                    self._table = self.db.create_table(TABLE_NAME, data=existing_rows)
         return self._table
 
     def add_chunks(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
@@ -83,6 +117,11 @@ class VectorStore:
                     "chunk_id": chunk.chunk_id or "",
                     "parent_chunk_id": chunk.parent_chunk_id or "",
                     "content_type": chunk.content_type,
+                    # PR-1 additions
+                    "kind": chunk.kind,
+                    "language": chunk.language or "",
+                    "artifact_qualname": chunk.artifact_qualname or "",
+                    "parent_document_id": chunk.parent_document_id or "",
                 }
             )
         table = self._get_table()
@@ -138,6 +177,11 @@ class VectorStore:
                 "chunk_level": r["chunk_level"],
                 "labels": _parse_json_list(r["labels"]),
                 "score": 1.0 / (1.0 + r.get("_distance", 0.0)),
+                # PR-1 additions
+                "kind": r.get("kind", "text"),
+                "language": r.get("language", "") or None,
+                "artifact_qualname": r.get("artifact_qualname", "") or None,
+                "parent_document_id": r.get("parent_document_id", "") or None,
             }
             for r in results
         ]
