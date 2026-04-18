@@ -23,7 +23,15 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama pull nomic-embed-text
 ```
 
-**Optional (for the graph plugin):** Java 21+ on the `PATH` so `guru-graph` can spawn a Neo4j Community subprocess. The graph is enabled by default; it gracefully degrades when Java isn't available, so you can install it later. To opt out completely, set `graph.enabled: false` in your `.guru.json`.
+### Optional: the graph plugin
+
+Guru's graph plugin is enabled by default, but you can ignore it entirely without installing anything extra — vector search works without it. Pick whichever applies:
+
+- **You don't want the graph.** Skip Java/Neo4j. Set `graph.enabled: false` in your `.guru.json` (or in `~/.config/guru/config.json` for machine-wide opt-out) and the daemon never tries to start. You'll get a small noise reduction; everything except `guru graph *` and the `graph_*` MCP tools behaves identically.
+- **You want the graph (subprocess mode, default).** Install **Java 17+** *and* **Neo4j 5.x** yourself — they are not bundled. On macOS: `brew install openjdk@17 neo4j`. Debian/Ubuntu: `apt install openjdk-17-jre neo4j`. Other platforms: see https://neo4j.com/download/.
+- **You already have Neo4j (Docker, shared cluster, CI service).** Skip the local Java/Neo4j install. Set the `GURU_NEO4J_BOLT_URI` environment variable (e.g. `bolt://127.0.0.1:7687`) and guru-graph will connect to your Neo4j instead of spawning one.
+
+If you leave the graph enabled but haven't installed Java/Neo4j, indexing still works — guru-graph just logs a one-time `graph unavailable` info message and continues without the graph.
 
 ## Install
 
@@ -31,7 +39,7 @@ ollama pull nomic-embed-text
 uv tool install guru --extra-index-url https://martin-macak.github.io/guru/simple/
 ```
 
-This installs the `guru`, `guru-server`, `guru-mcp`, and `guru-graph` commands.
+This installs the `guru`, `guru-server`, and `guru-mcp` commands. The graph daemon entry point (`guru-graph-daemon`) is included too, but you normally never invoke it directly — guru-server lazy-spawns it on the first graph call.
 
 ## Quick start
 
@@ -211,11 +219,12 @@ uv tool uninstall guru
 **Graph daemon "not reachable"**
 - Run `guru graph status` to check daemon + Neo4j health
 - The daemon is lazy-spawned on first graph call; `guru graph start` forces it now
-- Java 21+ must be on PATH for the daemon to spawn Neo4j (subprocess mode)
-- For an externally-managed Neo4j (e.g. Docker), set `GURU_NEO4J_BOLT_URI` and the daemon connects to it instead of spawning
+- Subprocess mode requires both **Java 17+** and **Neo4j 5.x** on `PATH` (see [Optional: the graph plugin](#optional-the-graph-plugin) for install commands)
+- For an externally-managed Neo4j (e.g. Docker), set `GURU_NEO4J_BOLT_URI` and the daemon connects to it instead of spawning — no local Java/Neo4j install needed
 
-**Graph commands say "graph is disabled"**
-- The graph is opted out in your config. Set `graph.enabled: true` in `.guru.json` (it's the default; absence means enabled)
+**`guru graph *` commands say "graph is disabled"**
+- The graph is opted out in your config. To enable it, set `graph.enabled: true` in `.guru.json` (it's the default — absence of the key means enabled)
+- If you don't want the graph at all, this message is the expected behaviour; the rest of guru works as normal
 
 ## Contributing
 
