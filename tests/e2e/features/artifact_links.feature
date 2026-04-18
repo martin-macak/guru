@@ -38,7 +38,7 @@ Feature: Parser-emitted and agent-written artifact RELATES links
     Then the link create attempt fails with GraphUnavailable
 
   # ----------------------------------------------------------------
-  # Default-suite (no daemon required) — Pydantic 422 paths.
+  # Pydantic 422 paths — bound-checked at the route layer.
   # ----------------------------------------------------------------
 
   Scenario: Unknown link kind is rejected with 422 (POST /relates)
