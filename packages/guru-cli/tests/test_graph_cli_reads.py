@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from click.testing import CliRunner
 
 from guru_cli.commands.graph import (
     _client,
@@ -11,6 +14,7 @@ from guru_cli.commands.graph import (
     _render_kbs_table,
     _render_links_table,
     _render_query_result,
+    graph_group,
 )
 from guru_core.graph_errors import GraphUnavailable
 from guru_core.graph_types import KbLink, KbNode, LinkKind, QueryResult
@@ -165,3 +169,58 @@ def test_client_returns_graphclient_pointed_at_default_socket():
         pytest.skip("guru-graph not installed in this test environment")
     assert c.auto_start is False
     assert c.socket_path.endswith("graph.sock")
+
+
+# ---- Task 3: guru graph kbs command ----
+
+
+@pytest.fixture
+def runner():
+    return CliRunner()
+
+
+@pytest.fixture
+def mock_client():
+    with patch("guru_cli.commands.graph._client") as f:
+        client = AsyncMock()
+        f.return_value = client
+        yield client
+
+
+def test_kbs_list_text(runner, mock_client):
+    mock_client.list_kbs = AsyncMock(return_value=[_kb("alpha"), _kb("beta")])
+    result = runner.invoke(graph_group, ["kbs"])
+    assert result.exit_code == 0, result.output
+    assert "alpha" in result.output and "beta" in result.output
+    mock_client.list_kbs.assert_awaited_once_with(prefix=None, tag=None)
+
+
+def test_kbs_list_empty(runner, mock_client):
+    mock_client.list_kbs = AsyncMock(return_value=[])
+    result = runner.invoke(graph_group, ["kbs"])
+    assert result.exit_code == 0, result.output
+    assert "no KBs" in result.output
+
+
+def test_kbs_json(runner, mock_client):
+    mock_client.list_kbs = AsyncMock(return_value=[_kb("alpha")])
+    result = runner.invoke(graph_group, ["kbs", "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert data[0]["name"] == "alpha"
+
+
+def test_kbs_prefix_and_tag_flags(runner, mock_client):
+    mock_client.list_kbs = AsyncMock(return_value=[])
+    result = runner.invoke(graph_group, ["kbs", "--prefix", "al", "--tag", "app"])
+    assert result.exit_code == 0, result.output
+    mock_client.list_kbs.assert_awaited_once_with(prefix="al", tag="app")
+
+
+def test_kbs_graph_unavailable(runner, mock_client):
+    mock_client.list_kbs = AsyncMock(side_effect=GraphUnavailable("boom"))
+    result = runner.invoke(graph_group, ["kbs"])
+    assert result.exit_code == 1
+    # click's CliRunner merges stderr into output by default
+    assert "daemon: unreachable" in result.output

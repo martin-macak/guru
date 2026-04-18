@@ -239,3 +239,45 @@ def status() -> None:
     except Exception as e:
         click.echo(f"daemon: unreachable ({e})")
         sys.exit(1)
+
+
+@graph_group.command(name="kbs")
+@click.option(
+    "--prefix",
+    type=str,
+    default=None,
+    help="Filter KBs whose name starts with this prefix.",
+)
+@click.option(
+    "--tag",
+    type=str,
+    default=None,
+    help="Filter KBs that carry this tag.",
+)
+@click.option(
+    "--json",
+    "as_json",
+    is_flag=True,
+    default=False,
+    help="Emit JSON array instead of a text table.",
+)
+@click.option(
+    "--no-truncate",
+    is_flag=True,
+    default=False,
+    help="Never truncate long paths.",
+)
+def kbs(prefix: str | None, tag: str | None, as_json: bool, no_truncate: bool) -> None:
+    """List all KB nodes in the graph."""
+    client = _client()
+    nodes = _handle_graph_errors(client.list_kbs(prefix=prefix, tag=tag))
+    if as_json:
+        click.echo(
+            _json.dumps(
+                [n.model_dump(mode="json") for n in nodes],
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        click.echo(_render_kbs_table(nodes, truncate=not no_truncate))
