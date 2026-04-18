@@ -155,10 +155,16 @@ def _detect_package_roots(project_root: Path) -> list[Path]:
             top = top.parent
         candidate = top.parent
         roots.add(candidate)
-    # Always include project_root as a fallback so bare modules (file.py with
-    # no __init__.py package) resolve to a sensible qualname.
-    roots.add(project_root)
-    return sorted(roots)
+    # Fallback: only include project_root when no package roots were detected
+    # so bare-module projects (no __init__.py anywhere) still resolve to a
+    # sensible qualname. When a real package root exists, project_root would
+    # only confuse the parser (e.g. "src/pkg/auth.py" → "src.pkg.auth" instead
+    # of "pkg.auth"), so don't add it.
+    if not roots:
+        roots.add(project_root)
+    # Sort by depth descending — most specific root wins when the parser
+    # iterates in `_derive_module_qualname`.
+    return sorted(roots, key=lambda p: (-len(p.parts), str(p)))
 
 
 def create_app(

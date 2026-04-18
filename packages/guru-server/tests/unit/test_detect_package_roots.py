@@ -12,6 +12,20 @@ def test_empty_project_returns_root_only(tmp_path: Path):
     assert tmp_path.resolve() in [r.resolve() for r in roots]
 
 
+def test_does_not_include_project_root_when_packages_exist(tmp_path: Path):
+    """Including both `src/` and the project_root would let project_root win
+    in `_derive_module_qualname` when a package is under it (e.g. "src/pkg/x.py"
+    would resolve to "src.pkg.x" instead of "pkg.x"). So when any real package
+    root is found, project_root must be excluded.
+    """
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "pkg").mkdir()
+    (tmp_path / "src" / "pkg" / "__init__.py").write_text("")
+    roots = [r.resolve() for r in _detect_package_roots(tmp_path)]
+    assert (tmp_path / "src").resolve() in roots
+    assert tmp_path.resolve() not in roots
+
+
 def test_top_level_package_detected(tmp_path: Path):
     (tmp_path / "pkg").mkdir()
     (tmp_path / "pkg" / "__init__.py").write_text("")

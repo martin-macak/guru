@@ -1,7 +1,7 @@
 """Auth helpers."""
 import hashlib
 
-from src.pkg.services.user import UserService
+from pkg.services.user import UserService
 
 
 class AuthError(Exception):
