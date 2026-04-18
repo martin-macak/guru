@@ -14,21 +14,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from guru_graph.backend.base import BackendHealth, BackendInfo, CypherResult, Tx
-from guru_graph.versioning import check_migration_target
-
-_ALLOWED_ARTIFACT_LABELS = frozenset(
-    {
-        "Module",
-        "Class",
-        "Function",
-        "Method",
-        "OpenApiSpec",
-        "OpenApiOperation",
-        "OpenApiSchema",
-        "MarkdownSection",
-    }
+from guru_graph.backend.base import (
+    ALLOWED_ARTIFACT_LABELS,
+    BackendHealth,
+    BackendInfo,
+    CypherResult,
+    Tx,
 )
+from guru_graph.versioning import check_migration_target
 
 
 @dataclass
@@ -214,7 +207,7 @@ class FakeBackend:
         )
 
     def upsert_artifact(self, *, node_id: str, label: str, properties: dict[str, Any]) -> None:
-        if label != "Document" and label not in _ALLOWED_ARTIFACT_LABELS:
+        if label != "Document" and label not in ALLOWED_ARTIFACT_LABELS:
             raise ValueError(f"unknown artifact label: {label!r}")
         existing = self._artifacts.get(node_id)
         snapshot = list(existing.snapshot_ids) if existing is not None else []
@@ -230,6 +223,7 @@ class FakeBackend:
         self._edges = [e for e in self._edges if e.from_id != node_id and e.to_id != node_id]
 
     def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
+        """See :meth:`ArtifactOpsBackend.delete_artifact_with_descendants`."""
         # BFS over CONTAINS edges starting from node_id.
         result: list[str] = [node_id]
         seen: set[str] = {node_id}

@@ -14,22 +14,16 @@ from neo4j import GraphDatabase
 
 from ..neo4j_process import Neo4jRuntime, start_neo4j, stop_neo4j
 from ..versioning import check_migration_target
-from .base import BackendHealth, BackendInfo, CypherResult, GraphBackendRegistry, Tx
+from .base import (
+    ALLOWED_ARTIFACT_LABELS,
+    BackendHealth,
+    BackendInfo,
+    CypherResult,
+    GraphBackendRegistry,
+    Tx,
+)
 
 logger = logging.getLogger(__name__)
-
-_ALLOWED_ARTIFACT_LABELS = frozenset(
-    {
-        "Module",
-        "Class",
-        "Function",
-        "Method",
-        "OpenApiSpec",
-        "OpenApiOperation",
-        "OpenApiSchema",
-        "MarkdownSection",
-    }
-)
 
 
 class _Neo4jTx(Tx):
@@ -364,7 +358,7 @@ class Neo4jBackend:
         if label == "Document":
             self.upsert_document(node_id=node_id, label=label, properties=properties)
             return
-        if label not in _ALLOWED_ARTIFACT_LABELS:
+        if label not in ALLOWED_ARTIFACT_LABELS:
             raise ValueError(f"unknown artifact label: {label!r}")
         # Label is from our allow-list, so f-string substitution is safe.
         cypher = (
@@ -384,6 +378,7 @@ class Neo4jBackend:
             )
 
     def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
+        """See :meth:`ArtifactOpsBackend.delete_artifact_with_descendants`."""
         with self._driver.session() as s:
             rec = s.run(
                 """
@@ -483,22 +478,15 @@ class Neo4jBackend:
     def orphan_annotations_for(self, *, node_ids: list[str]) -> None:
         if not node_ids:
             return
-        with self._driver.session() as s:
-            s.run(
-                """
-                MATCH (a:Annotation)-[:ANNOTATES]->(t)
-                WHERE t.id IN $ids
-                SET a.updated_at = timestamp()
-                """,
-                parameters={"ids": list(node_ids)},
+        with self.transaction() as tx:
+            tx.execute(
+                "MATCH (a:Annotation)-[:ANNOTATES]->(t) WHERE t.id IN $ids "
+                "SET a.updated_at = timestamp()",
+                {"ids": list(node_ids)},
             )
-            s.run(
-                """
-                MATCH (a:Annotation)-[r:ANNOTATES]->(t)
-                WHERE t.id IN $ids
-                DELETE r
-                """,
-                parameters={"ids": list(node_ids)},
+            tx.execute(
+                "MATCH (a:Annotation)-[r:ANNOTATES]->(t) WHERE t.id IN $ids DELETE r",
+                {"ids": list(node_ids)},
             )
 
     def get_artifact(self, *, node_id: str) -> dict[str, Any] | None:
@@ -581,7 +569,7 @@ class Neo4jBackend:
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {"limit": limit}
         if label is not None:
-            if label != "Document" and label not in _ALLOWED_ARTIFACT_LABELS:
+            if label != "Document" and label not in ALLOWED_ARTIFACT_LABELS:
                 raise ValueError(f"unknown artifact label: {label!r}")
             match_clause = f"MATCH (n:{label})"
         else:

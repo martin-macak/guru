@@ -13,6 +13,21 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, Protocol, runtime_checkable
 
+# Labels that `upsert_artifact` accepts. `Document` is intentionally excluded —
+# documents go through `upsert_document`. Kept in sync with the m0002 schema.
+ALLOWED_ARTIFACT_LABELS: frozenset[str] = frozenset(
+    {
+        "Module",
+        "Class",
+        "Function",
+        "Method",
+        "OpenApiSpec",
+        "OpenApiOperation",
+        "OpenApiSchema",
+        "MarkdownSection",
+    }
+)
+
 
 @dataclass(frozen=True)
 class BackendInfo:
@@ -101,7 +116,15 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
 
     def delete_artifact(self, *, node_id: str) -> None: ...
 
-    def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]: ...
+    def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
+        """Return the ids of `node_id` and all CONTAINS-descendants, without mutating the graph.
+
+        Callers (typically :class:`IngestService`) use this to plan a delete:
+        first collect the subtree, then orphan annotations targeting any node
+        in the subtree, then call :meth:`delete_artifact` for each id. Order
+        of the returned list is unspecified — sort if you need determinism.
+        """
+        ...
 
     def create_contains_edge(self, *, from_id: str, to_id: str) -> None: ...
 
