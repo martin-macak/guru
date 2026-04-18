@@ -22,6 +22,9 @@ from .graph_errors import GraphUnavailable
 from .graph_types import (
     AnnotationCreate,
     AnnotationNode,
+    ArtifactLink,
+    ArtifactLinkCreate,
+    ArtifactLinkKind,
     CypherQuery,
     Health,
     KbLink,
@@ -249,6 +252,41 @@ class GraphClient:
             raise GraphUnavailable(
                 f"unexpected status from /ingest/documents/{doc_id}: {resp.status_code}"
             )
+
+    async def create_link(self, req: ArtifactLinkCreate, *, author: str) -> ArtifactLink:
+        """Create a directed relationship between two artifacts.
+
+        Returns the resulting :class:`ArtifactLink`. Raises
+        :class:`GraphUnavailable` on any transport, protocol, or daemon-side
+        error, including 404 (unknown artifact) or 422 (bad payload).
+        """
+        resp = await self._request(
+            "POST",
+            "/relates",
+            json=req.model_dump(mode="json"),
+            headers={"X-Guru-Author": author},
+        )
+        if resp.status_code != 201:
+            raise GraphUnavailable(f"unexpected status from POST /relates: {resp.status_code}")
+        return ArtifactLink.model_validate(resp.json())
+
+    async def delete_link(self, *, from_id: str, to_id: str, kind: ArtifactLinkKind) -> bool:
+        """Delete a directed relationship between two artifacts.
+
+        Returns ``True`` if the link was deleted (204), ``False`` if it was not
+        found (404). Raises :class:`GraphUnavailable` on any other status or
+        transport error.
+        """
+        resp = await self._request(
+            "DELETE",
+            "/relates",
+            json={"from_id": from_id, "to_id": to_id, "kind": kind.value},
+        )
+        if resp.status_code == 204:
+            return True
+        if resp.status_code == 404:
+            return False
+        raise GraphUnavailable(f"unexpected status from DELETE /relates: {resp.status_code}")
 
     async def create_annotation(self, req: AnnotationCreate, *, author: str) -> AnnotationNode:
         """Create an annotation. Returns the resulting AnnotationNode.
