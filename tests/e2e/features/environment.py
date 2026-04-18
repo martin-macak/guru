@@ -567,6 +567,20 @@ def _trigger_and_wait_index(project_dir: Path, timeout: float = 30.0) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def before_scenario(context, scenario):
+    """Auto-skip scenarios that are specified but rely on later-PR machinery.
+
+    Scenarios tagged with `@skip_until_prN` document future behavior and are
+    intentionally under-implemented at this point in the plan. We mark them
+    skipped here so behave treats them as skipped rather than erroring on
+    undefined steps.
+    """
+    for tag in scenario.tags:
+        if tag.startswith("skip_until_"):
+            scenario.skip(f"pending: {tag}")
+            return
+
+
 def before_feature(context, feature):
     """Start a fresh server for each feature.
 
@@ -575,7 +589,41 @@ def before_feature(context, feature):
     - @gitignore_project → git-repo project with gitignored files
     - @federation → federation tests; no default server is started
     - (default) → standard project with mocked embedder
+
+    The artifact_indexing and graph_optional features use the polyglot fixture
+    and drive server startup from their own step definitions (via
+    `Given graph is enabled/disabled`), so we only set up the embedding cache
+    and @real_neo4j skip logic here.
     """
+    # artifact_indexing / graph_optional scenarios copy the polyglot fixture
+    # from a Background step and start their own server. We just need to
+    # isolate the embedding cache and auto-skip @real_neo4j when the env
+    # doesn't provide a Neo4j.
+    if "artifact_indexing" in feature.filename or "graph_optional" in feature.filename:
+        cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
+        os.close(cache_fd)
+        os.environ["GURU_EMBED_CACHE_PATH"] = cache_name
+        context._cache_path = cache_name
+        context._polyglot_managed = True
+
+        # Isolate graph daemon state — matches the graph_plugin hook so the
+        # @real_neo4j subset doesn't collide with other features' daemons.
+        context.graph_tmp = tempfile.mkdtemp(prefix="guru-graph-art-")
+        context.guru_tmp_cfg = tempfile.mkdtemp(prefix="guru-art-cfg-")
+        os.environ["XDG_CONFIG_HOME"] = context.guru_tmp_cfg
+        os.environ["XDG_DATA_HOME"] = os.path.join(context.graph_tmp, "data")
+        os.environ["XDG_STATE_HOME"] = os.path.join(context.graph_tmp, "state")
+        os.environ["XDG_RUNTIME_DIR"] = os.path.join(context.graph_tmp, "run")
+        os.environ["GURU_GRAPH_HOME"] = os.path.join(context.graph_tmp, "home")
+
+        if "real_neo4j" in feature.tags and os.environ.get("GURU_REAL_NEO4J") != "1":
+            feature.skip("GURU_REAL_NEO4J=1 not set")
+            return
+        for scenario in feature.scenarios:
+            if "real_neo4j" in scenario.tags and os.environ.get("GURU_REAL_NEO4J") != "1":
+                scenario.skip("GURU_REAL_NEO4J=1 not set")
+        return
+
     # Graph plugin scenarios are self-contained — they use GraphClient or a
     # FakeBackend directly rather than needing a default guru-server startup.
     # Skip the normal server-bootstrap path.
@@ -639,6 +687,63 @@ def before_feature(context, feature):
 
 def after_feature(context, feature):
     """Stop the server and clean up."""
+    if getattr(context, "_polyglot_managed", False):
+        import contextlib as _ctx
+        import os as _os
+        import shutil as _shutil
+
+        # Stop any guru-server the steps started.
+        if hasattr(context, "server") and context.server is not None:
+            context.server.should_exit = True
+        if hasattr(context, "server_thread") and context.server_thread is not None:
+            context.server_thread.join(timeout=5)
+
+        # Remove the per-feature project tmpdir (copied from fixtures/).
+        project_dir = getattr(context, "project_dir", None)
+        if project_dir is not None:
+            pid_path = project_dir / ".guru" / "guru.pid"
+            sock_path = project_dir / ".guru" / "guru.sock"
+            with _ctx.suppress(FileNotFoundError):
+                pid_path.unlink()
+            with _ctx.suppress(FileNotFoundError):
+                sock_path.unlink()
+            _shutil.rmtree(project_dir, ignore_errors=True)
+
+        polyglot_tmp_root = getattr(context, "_polyglot_tmp_root", None)
+        if polyglot_tmp_root is not None:
+            _shutil.rmtree(polyglot_tmp_root, ignore_errors=True)
+
+        # Kill any daemon we (or auto-start) spawned.
+        with _ctx.suppress(Exception):
+            from guru_graph.config import GraphPaths as _GP
+            from guru_graph.lifecycle import read_pid_file as _rpf
+
+            paths = _GP.default()
+            pid = _rpf(paths.pid_file)
+            if pid:
+                with _ctx.suppress(ProcessLookupError):
+                    _os.kill(pid, 15)
+
+        for attr in ("graph_tmp", "guru_tmp_cfg"):
+            d = getattr(context, attr, None)
+            if d:
+                _shutil.rmtree(d, ignore_errors=True)
+        for key in (
+            "GURU_GRAPH_HOME",
+            "XDG_DATA_HOME",
+            "XDG_STATE_HOME",
+            "XDG_RUNTIME_DIR",
+            "XDG_CONFIG_HOME",
+        ):
+            _os.environ.pop(key, None)
+
+        # Clean up the isolated embedding cache
+        cache_path = getattr(context, "_cache_path", None)
+        if cache_path and os.path.exists(cache_path):
+            os.unlink(cache_path)
+        os.environ.pop("GURU_EMBED_CACHE_PATH", None)
+        return
+
     if "graph_plugin" in feature.filename or "graph_cli_reads" in feature.filename:
         import contextlib as _ctx
         import os as _os

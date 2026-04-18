@@ -161,6 +161,11 @@ def create_app(
     parser_registry.register(MarkdownParser())
     app.state.parser_registry = parser_registry
 
+    # Build graph client before BackgroundIndexer so it can be passed in.
+    graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
+    app.state.graph_enabled = graph_enabled
+    app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
+
     # Create indexer if we have all dependencies
     if store is not None and embedder is not None and app.state.manifest is not None:
         app.state.indexer = BackgroundIndexer(
@@ -172,13 +177,10 @@ def create_app(
             kb_name=app.state.project_name,
             embed_cache=embed_cache,
             parser_registry=parser_registry,
+            graph_client=app.state.graph_client,
         )
     else:
         app.state.indexer = None
-
-    graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
-    app.state.graph_enabled = graph_enabled
-    app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
 
     app.include_router(api_router)
     return app

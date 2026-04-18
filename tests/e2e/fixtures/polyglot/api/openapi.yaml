@@ -1,0 +1,29 @@
+openapi: 3.0.3
+info:
+  title: Polyglot API
+  version: 1.0.0
+paths:
+  /users/{id}:
+    get:
+      operationId: getUser
+      summary: Get user by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResource"
+components:
+  schemas:
+    UserResource:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }

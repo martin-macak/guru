@@ -27,13 +27,14 @@ from .graph_types import (
     KbNode,
     KbUpsert,
     LinkKind,
+    ParseResultPayload,
     QueryResult,
     VersionInfo,
 )
 
 logger = logging.getLogger(__name__)
 
-PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.1.0"
 PROTOCOL_HEADER = "X-Guru-Graph-Protocol"
 
 
@@ -208,6 +209,38 @@ class GraphClient:
             f"/kbs/{quote(name, safe='')}/links?direction={direction}",
         )
         return [KbLink.model_validate(r) for r in resp.json()]
+
+    async def submit_parse_result(self, *, kb_name: str, payload: ParseResultPayload) -> None:
+        """Submit a ParseResultPayload to the graph daemon's ingest endpoint.
+
+        Raises :class:`GraphUnavailable` on any transport, protocol, or
+        daemon-side error. A successful submission returns nothing; the graph
+        is reconciled in-place.
+        """
+        resp = await self._request(
+            "POST",
+            f"/ingest/parse-result?kb_name={quote(kb_name, safe='')}",
+            json=payload.model_dump(mode="json"),
+        )
+        if resp.status_code != 204:
+            raise GraphUnavailable(
+                f"unexpected status from /ingest/parse-result: {resp.status_code}"
+            )
+
+    async def delete_document_in_graph(self, *, kb_name: str, doc_id: str) -> None:
+        """Remove a Document and its CONTAINS subtree from the graph.
+
+        Raises :class:`GraphUnavailable` on any error. Safe to call for a
+        document that doesn't exist in the graph (204 is returned either way).
+        """
+        resp = await self._request(
+            "DELETE",
+            f"/ingest/documents/{quote(doc_id, safe='')}?kb_name={quote(kb_name, safe='')}",
+        )
+        if resp.status_code != 204:
+            raise GraphUnavailable(
+                f"unexpected status from /ingest/documents/{doc_id}: {resp.status_code}"
+            )
 
     async def query(
         self,

@@ -48,12 +48,19 @@ def real_neo4j_backend(tmp_path: Path):
     # Connect-only mode shares DB state across tests — wipe before each.
     if external_uri is not None:
         backend.execute("MATCH (n) DETACH DELETE n", {})
-        for stmt in (
-            "DROP CONSTRAINT kb_name_unique IF EXISTS",
-            "DROP INDEX kb_updated_at IF EXISTS",
-        ):
+        constraints = backend.execute("SHOW CONSTRAINTS YIELD name RETURN name", {})
+        for row in constraints.rows:
             with contextlib.suppress(Exception):
-                backend.execute(stmt, {})
+                backend.execute(f"DROP CONSTRAINT `{row[0]}` IF EXISTS", {})
+        # `type <> 'LOOKUP'` filters out Neo4j's built-in lookup indexes
+        # (`node_label_lookup_index`, `relationship_type_lookup_index`) which
+        # can't be dropped.
+        indexes = backend.execute(
+            "SHOW INDEXES YIELD name, type WHERE type <> 'LOOKUP' RETURN name", {}
+        )
+        for row in indexes.rows:
+            with contextlib.suppress(Exception):
+                backend.execute(f"DROP INDEX `{row[0]}` IF EXISTS", {})
         # Reset cached schema_version since we just wiped _Meta.
         backend._schema_version = 0
     try:

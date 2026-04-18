@@ -69,7 +69,7 @@ def step_post_unknown_kind(context):
     context.last_response = context._client.post(
         "/kbs/alpha/links",
         json={"to_kb": "beta", "kind": "sorta_related"},
-        headers={"X-Guru-Graph-Protocol": "1.0.0"},
+        headers={"X-Guru-Graph-Protocol": "1.1.0"},
     )
 
 

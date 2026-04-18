@@ -8,8 +8,10 @@ from pathlib import Path
 
 import numpy as np
 
+from guru_core.graph_client import GraphClient
 from guru_core.types import GuruConfig, Rule
 from guru_server.embed_cache import EmbeddingCache
+from guru_server.graph_integration import graph_or_skip, parse_result_to_payload
 from guru_server.ingestion.markdown import MarkdownParser
 from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import Job
@@ -63,6 +65,7 @@ class BackgroundIndexer:
         kb_name: str,
         embed_cache: EmbeddingCache | None = None,
         parser_registry: ParserRegistry | None = None,
+        graph_client: GraphClient | None = None,
     ) -> None:
         self._store = store
         self._manifest = manifest
@@ -72,6 +75,7 @@ class BackgroundIndexer:
         self._registry = parser_registry or _default_registry()
         self._cache = embed_cache
         self._kb_name = kb_name
+        self._graph_client = graph_client
 
     async def run(self, job: Job) -> None:
         """Execute a two-phase indexing job."""
@@ -125,6 +129,14 @@ class BackgroundIndexer:
                 job.files_deleted = len(to_delete)
                 for rel_path in to_delete:
                     logger.info("[job %s] Deleted %s (removed from disk)", short_id, rel_path)
+                    if self._graph_client is not None:
+                        doc_id = f"{self._kb_name}::{rel_path}"
+                        await graph_or_skip(
+                            self._graph_client.delete_document_in_graph(
+                                kb_name=self._kb_name, doc_id=doc_id
+                            ),
+                            feature="ingest_delete",
+                        )
 
             job.status = "completed"
             job.phase = None
@@ -233,7 +245,7 @@ class BackgroundIndexer:
 
         parser = self._registry.dispatch(file_path)
         assert parser is not None, f"no parser for {file_path} — discovery should have filtered it"
-        parse_result = parser.parse(file_path, rule, kb_name=self._kb_name)
+        parse_result = parser.parse(file_path, rule, kb_name=self._kb_name, rel_path=rel_path)
         chunks = parse_result.chunks
         # parse_result.document/nodes/edges are captured but discarded in PR-1 —
         # PR-2 wires them into graph ingestion via graph_or_skip.
@@ -248,6 +260,16 @@ class BackgroundIndexer:
                 mtime=current_mtime,
                 chunk_count=0,
             )
+            # Treat an empty-chunks parse as a deletion for the graph — the document
+            # lost all its sections; the graph should reflect that.
+            if self._graph_client is not None:
+                doc_id = f"{self._kb_name}::{rel_path}"
+                await graph_or_skip(
+                    self._graph_client.delete_document_in_graph(
+                        kb_name=self._kb_name, doc_id=doc_id
+                    ),
+                    feature="ingest_delete",
+                )
             job.files_processed += 1
             return
 
@@ -269,6 +291,12 @@ class BackgroundIndexer:
 
         job.files_processed += 1
         job.chunks_created += len(chunks)
+        if self._graph_client is not None:
+            payload = parse_result_to_payload(parse_result)
+            await graph_or_skip(
+                self._graph_client.submit_parse_result(kb_name=self._kb_name, payload=payload),
+                feature="ingest_artifacts",
+            )
         logger.info("[job %s] Indexed %s (%d chunks)", short_id, rel_path, len(chunks))
 
     async def _embed_with_cache(

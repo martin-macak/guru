@@ -12,7 +12,8 @@ from typing import Any
 
 from guru_core.graph_client import GraphClient
 from guru_core.graph_errors import GraphUnavailable
-from guru_core.graph_types import KbUpsert
+from guru_core.graph_types import GraphEdgePayload, GraphNodePayload, KbUpsert, ParseResultPayload
+from guru_server.ingestion.base import ParseResult
 
 logger = logging.getLogger(__name__)
 
@@ -67,3 +68,35 @@ def build_graph_client_if_enabled(*, graph_enabled: bool) -> GraphClient | None:
     if not graph_enabled:
         return None
     return GraphClient(socket_path=None, auto_start=True)
+
+
+def parse_result_to_payload(pr: ParseResult) -> ParseResultPayload:
+    """Convert a parser's internal ParseResult into the Pydantic wire payload.
+
+    The server-side dataclasses (`GraphNode`, `GraphEdge`, `ParseResult`)
+    live in `guru_server.ingestion.base` — parsers should not depend on
+    Pydantic. This helper is the single conversion point to the wire schema
+    consumed by `/ingest/parse-result`.
+    """
+    return ParseResultPayload(
+        chunks_count=len(pr.chunks),
+        document=GraphNodePayload(
+            node_id=pr.document.node_id,
+            label=pr.document.label,
+            properties=pr.document.properties,
+        ),
+        nodes=[
+            GraphNodePayload(node_id=n.node_id, label=n.label, properties=n.properties)
+            for n in pr.nodes
+        ],
+        edges=[
+            GraphEdgePayload(
+                from_id=e.from_id,
+                to_id=e.to_id,
+                rel_type=e.rel_type,
+                kind=e.kind,
+                properties=e.properties,
+            )
+            for e in pr.edges
+        ],
+    )

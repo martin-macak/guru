@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .m0001_initial import apply as m0001
+from .m0002_artifact_schema import apply as m0002
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ Migration = Callable[[Any], None]
 
 MIGRATIONS: list[tuple[int, Migration]] = [
     (1, m0001),
+    (2, m0002),
 ]
 
 

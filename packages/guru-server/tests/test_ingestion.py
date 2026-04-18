@@ -103,7 +103,7 @@ def parser() -> MarkdownParser:
 
 @pytest.fixture
 def chunks(parser: MarkdownParser, md_file: Path, rule: Rule) -> list[Chunk]:
-    return parser.parse(md_file, rule, kb_name="test").chunks
+    return parser.parse(md_file, rule, kb_name="test", rel_path=md_file.name).chunks
 
 
 # --- Chunk dataclass ---
@@ -269,7 +269,7 @@ def test_content_type_default_is_text(chunks: list[Chunk]):
 def test_content_type_code(parser: MarkdownParser, tmp_path: Path, rule: Rule):
     p = tmp_path / "code.md"
     p.write_text(SAMPLE_MD_CODE, encoding="utf-8")
-    result = parser.parse(p, rule, kb_name="test").chunks
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     code_chunks = [c for c in result if "```" in c.content]
     assert code_chunks, "Expected at least one chunk with a code block"
     for c in code_chunks:
@@ -279,7 +279,7 @@ def test_content_type_code(parser: MarkdownParser, tmp_path: Path, rule: Rule):
 def test_content_type_table(parser: MarkdownParser, tmp_path: Path, rule: Rule):
     p = tmp_path / "table.md"
     p.write_text(SAMPLE_MD_TABLE, encoding="utf-8")
-    result = parser.parse(p, rule, kb_name="test").chunks
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     table_chunks = [c for c in result if "|" in c.content]
     assert table_chunks, "Expected at least one chunk with a table"
     for c in table_chunks:
@@ -289,7 +289,7 @@ def test_content_type_table(parser: MarkdownParser, tmp_path: Path, rule: Rule):
 def test_content_type_mixed(parser: MarkdownParser, tmp_path: Path, rule: Rule):
     p = tmp_path / "mixed.md"
     p.write_text(SAMPLE_MD_MIXED, encoding="utf-8")
-    result = parser.parse(p, rule, kb_name="test").chunks
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     mixed_chunks = [c for c in result if "```" in c.content and "|" in c.content]
     assert mixed_chunks, "Expected at least one chunk with both code and table"
     for c in mixed_chunks:
@@ -302,7 +302,7 @@ def test_content_type_mixed(parser: MarkdownParser, tmp_path: Path, rule: Rule):
 def test_parent_chunk_id_set_on_h3_chunks(parser: MarkdownParser, tmp_path: Path, rule: Rule):
     p = tmp_path / "deep.md"
     p.write_text(SAMPLE_MD_WITH_H3, encoding="utf-8")
-    result = parser.parse(p, rule, kb_name="test").chunks
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     l3_chunks = [c for c in result if c.chunk_level == 3]
     l2_chunks = [c for c in result if c.chunk_level == 2]
     assert l3_chunks, "Expected level-3 chunks from h3 headers"
@@ -320,7 +320,7 @@ def test_parent_chunk_id_set_on_h3_chunks(parser: MarkdownParser, tmp_path: Path
 def test_l2_chunks_have_no_parent(parser: MarkdownParser, tmp_path: Path, rule: Rule):
     p = tmp_path / "deep.md"
     p.write_text(SAMPLE_MD_WITH_H3, encoding="utf-8")
-    result = parser.parse(p, rule, kb_name="test").chunks
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     l2_chunks = [c for c in result if c.chunk_level == 2]
     for c in l2_chunks:
         assert c.parent_chunk_id is None, (
@@ -340,7 +340,7 @@ def test_split_level_h2_merges_h3_into_parent(parser: MarkdownParser, tmp_path: 
     )
     p = tmp_path / "deep.md"
     p.write_text(SAMPLE_MD_WITH_H3, encoding="utf-8")
-    result = parser.parse(p, rule_h2, kb_name="test").chunks
+    result = parser.parse(p, rule_h2, kb_name="test", rel_path=p.name).chunks
     l3_chunks = [c for c in result if c.chunk_level == 3]
     assert l3_chunks == [], (
         f"Expected no level-3 chunks when split_level='h2', but found: {[c.header_breadcrumb for c in l3_chunks]}"
@@ -362,7 +362,7 @@ def test_split_level_h3_keeps_all_levels(parser: MarkdownParser, tmp_path: Path)
     )
     p = tmp_path / "deep.md"
     p.write_text(SAMPLE_MD_WITH_H3, encoding="utf-8")
-    result = parser.parse(p, rule_h3, kb_name="test").chunks
+    result = parser.parse(p, rule_h3, kb_name="test", rel_path=p.name).chunks
     l3_chunks = [c for c in result if c.chunk_level == 3]
     assert l3_chunks, "Expected level-3 chunks when split_level='h3'"
 
@@ -402,7 +402,7 @@ def test_frontmatter_with_dates_is_json_serializable(
 
     p = tmp_path / "cr_001.md"
     p.write_text(SAMPLE_MD_WITH_DATE, encoding="utf-8")
-    chunks = parser.parse(p, rule, kb_name="test").chunks
+    chunks = parser.parse(p, rule, kb_name="test", rel_path=p.name).chunks
     assert chunks, "Expected at least one chunk"
     for chunk in chunks:
         # This must not raise TypeError

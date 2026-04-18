@@ -14,7 +14,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class LinkKind(StrEnum):
@@ -124,3 +124,83 @@ class VersionInfo(BaseModel):
     backend: str
     backend_version: str
     schema_version: int
+
+
+# ---------------------------------------------------------------------------
+# Artifact-graph types (intra-KB RELATES-edge vocabulary and wire schema)
+# ---------------------------------------------------------------------------
+
+
+class ArtifactLinkKind(StrEnum):
+    """Closed vocabulary for intra-KB RELATES-edge kinds.
+
+    These describe relationships between artifacts *within* a single knowledge
+    base (e.g. file imports another file). They are distinct from `LinkKind`
+    which describes KB-to-KB relationships.
+    """
+
+    IMPORTS = "imports"
+    INHERITS_FROM = "inherits_from"
+    IMPLEMENTS = "implements"
+    CALLS = "calls"
+    REFERENCES = "references"
+    DOCUMENTS = "documents"
+
+
+class AnnotationKind(StrEnum):
+    """Closed vocabulary for human/AI annotations attached to graph nodes."""
+
+    SUMMARY = "summary"
+    GOTCHA = "gotcha"
+    CAVEAT = "caveat"
+    NOTE = "note"
+
+
+class GraphNodePayload(BaseModel):
+    """A single node in the artifact graph, as sent over the wire."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    label: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class GraphEdgePayload(BaseModel):
+    """A directed edge in the artifact graph, as sent over the wire.
+
+    Invariant: a RELATES edge must carry a `kind`; a CONTAINS edge must not.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    from_id: str
+    to_id: str
+    rel_type: Literal["CONTAINS", "RELATES"]
+    kind: str | None = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("kind")
+    @classmethod
+    def _kind_consistent(cls, kind: str | None, info: Any) -> str | None:
+        rel_type = info.data.get("rel_type")
+        if rel_type == "RELATES" and kind is None:
+            raise ValueError("kind must not be None when rel_type is 'RELATES'")
+        if rel_type == "CONTAINS" and kind is not None:
+            raise ValueError("kind must be None when rel_type is 'CONTAINS'")
+        return kind
+
+
+class ParseResultPayload(BaseModel):
+    """Wire schema for POST /ingest/parse-result.
+
+    The server's indexer converts its internal `ParseResult` to this model
+    before POSTing to the graph daemon.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunks_count: int
+    document: GraphNodePayload
+    nodes: list[GraphNodePayload] = Field(default_factory=list)
+    edges: list[GraphEdgePayload] = Field(default_factory=list)

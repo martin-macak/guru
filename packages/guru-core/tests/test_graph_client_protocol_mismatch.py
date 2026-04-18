@@ -87,4 +87,4 @@ def test_protocol_version_module_constant_is_patchable():
     assert hasattr(gc_module, "PROTOCOL_VERSION")
     with patch("guru_core.graph_client.PROTOCOL_VERSION", "99.0.0"):
         assert gc_module.PROTOCOL_VERSION == "99.0.0"
-    assert gc_module.PROTOCOL_VERSION == "1.0.0"
+    assert gc_module.PROTOCOL_VERSION == "1.1.0"
