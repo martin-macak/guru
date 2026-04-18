@@ -679,6 +679,8 @@ def before_feature(context, feature):
     # Skip the normal server-bootstrap path.
     # annotations_and_curation + orphan_triage follow the same pattern: only
     # guru-graph daemon needed, seeded via submit_parse_result.
+    # skill_distribution scenarios manage their own tmpdirs in steps and
+    # need no daemon or server at all.
     if (
         "graph_plugin" in feature.filename
         or "graph_cli_reads" in feature.filename
@@ -686,6 +688,7 @@ def before_feature(context, feature):
         or "orphan_triage" in feature.filename
         or "artifact_links" in feature.filename
         or "graph_mcp_tools" in feature.filename
+        or "skill_distribution" in feature.filename
     ):
         import os as _os
         import tempfile as _tempfile
@@ -802,6 +805,7 @@ def after_feature(context, feature):
         or "orphan_triage" in feature.filename
         or "artifact_links" in feature.filename
         or "graph_mcp_tools" in feature.filename
+        or "skill_distribution" in feature.filename
     ):
         import contextlib as _ctx
         import os as _os

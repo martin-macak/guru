@@ -107,6 +107,20 @@ def init():
     # 4. Add .guru/ to .gitignore
     _init_gitignore(gitignore)
 
+    # 5. Install the agent-facing skill
+    from guru_cli.skills_install import install_skill
+
+    try:
+        guru_version = pkg_version("guru-cli")
+    except Exception:
+        guru_version = "0.0.0"
+    try:
+        installed = install_skill(cwd, guru_version=guru_version)
+    except Exception as e:
+        click.echo(f"Warning: skill install failed: {e}", err=True)
+    else:
+        click.echo(f"Installed skill: .claude/skills/guru-knowledge-base ({len(installed)} files)")
+
 
 def _init_mcp_json(mcp_json: Path) -> None:
     """Add guru entry to .mcp.json, creating or merging as needed."""
@@ -413,3 +427,7 @@ def cache_prune(older_than, yes):
 from guru_cli.commands.graph import graph_group  # noqa: E402
 
 cli.add_command(graph_group)
+
+from guru_cli.commands.update import update_cmd  # noqa: E402
+
+cli.add_command(update_cmd)
