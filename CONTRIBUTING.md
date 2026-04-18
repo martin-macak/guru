@@ -3,7 +3,7 @@
 ## Development setup
 
 ```bash
-git clone https://github.com/martinmacak/guru.git
+git clone https://github.com/martin-macak/guru.git
 cd guru
 uv sync --all-packages
 ```

@@ -13,7 +13,9 @@ Guru gives you two stores backed by one indexing pass:
 
 The vector index answers "find me text about X". The graph answers "what does this class call, who calls it, and what did the team learn about it last quarter?". The graph is the part that makes guru a *knowledge* base instead of a search index — every fact agents discover and write back compounds across sessions.
 
-Everything in guru is local. There is no cloud, no telemetry, no shared service. Embeddings come from a local Ollama; the graph runs on a Neo4j subprocess (or one you point it at).
+If you turn the graph off (or never install Java/Neo4j), guru still works as a high-quality vector knowledge base — you just lose structural traversal and durable agent annotations. The graph plugin is genuinely optional; nothing else in guru depends on it.
+
+Everything in guru is local. There is no cloud, no telemetry, no shared service. Embeddings come from a local Ollama. The graph plugin (when enabled and installed) runs against a Neo4j you install yourself, or one you point it at via `GURU_NEO4J_BOLT_URI`.
 
 ## Quick start
 
@@ -27,6 +29,8 @@ guru search "authentication"    # try a semantic query
 `guru init` is idempotent — re-running it on an existing project leaves your config untouched and only adds what's missing.
 
 After `init`, the agents you use in this repo (Claude Code, Cursor, Continue.dev — anything that reads `.mcp.json`) automatically discover the guru MCP server. The first time an agent calls a guru tool, the server starts in the background; the graph daemon spawns lazily on the first graph call.
+
+If you haven't installed Java + Neo4j (the graph plugin's prerequisites; see [README](README.md#optional-the-graph-plugin)), the first `guru index` will print one `graph unavailable for ingest_artifacts` info log and continue. Indexing and search still complete successfully — that's the graceful degradation working as designed. To silence the message entirely, set `graph.enabled: false` in `.guru.json`.
 
 ## What gets indexed
 
@@ -155,10 +159,10 @@ When the graph is off (or unreachable, or crashed), guru transparently degrades:
 
 ### Lifecycle
 
-The graph daemon (`guru-graph`) is a separate process that owns a Neo4j Community subprocess. It auto-spawns the first time `guru-server` makes a graph call. Two modes:
+The graph daemon (`guru-graph-daemon`) is a separate process that supervises a Neo4j subprocess. It auto-spawns the first time `guru-server` makes a graph call. Two modes:
 
-- **Subprocess mode** (default): the daemon spawns and supervises a Neo4j process. Requires Java 21+ on `PATH`.
-- **Connect-only mode**: set `GURU_NEO4J_BOLT_URI` (e.g. `bolt://127.0.0.1:7687`) and the daemon connects to a Neo4j you manage yourself (Docker, shared cluster, CI service container). No subprocess spawned.
+- **Subprocess mode** (default): the daemon spawns and supervises a Neo4j process by exec-ing the `neo4j` binary you installed yourself. Requires both **Java 17+** and **Neo4j 5.x** on `PATH`. Install on macOS with `brew install openjdk@17 neo4j`; on Debian/Ubuntu with `apt install openjdk-17-jre neo4j`; other platforms see https://neo4j.com/download/. Neither is bundled with guru.
+- **Connect-only mode**: set `GURU_NEO4J_BOLT_URI` (e.g. `bolt://127.0.0.1:7687`) and the daemon connects to a Neo4j you manage yourself (Docker, shared cluster, CI service container). No local Java or Neo4j install needed; both preflight checks are skipped.
 
 Manage the daemon explicitly:
 
@@ -313,11 +317,13 @@ Annotations capture *judgement* ("this method retries twice on timeout") — pro
 
 ### What runs locally? What's external?
 
-Everything. The vector store (LanceDB) is on disk under `.guru/db/`. The graph store (Neo4j) is a subprocess of the graph daemon, also local. Embeddings come from your local Ollama. There are no cloud calls and no telemetry.
+Everything is local. LanceDB lives on disk under `.guru/db/` — no external service. Embeddings come from your local Ollama (one `ollama pull` then offline forever). If you opt into the graph plugin in subprocess mode, guru-graph spawns a Neo4j Community process from the `neo4j` binary you installed yourself; the data lives under guru's app-data directory. There are no cloud calls and no telemetry.
+
+Note that **Neo4j and the JRE are not bundled with guru** — they are user-installed prerequisites for the graph plugin's subprocess mode. See the [README's "Optional: the graph plugin"](README.md#optional-the-graph-plugin) section for install commands. If you don't want the graph, you don't need either.
 
 ### Does guru work offline?
 
-Yes, after the first `ollama pull nomic-embed-text` to fetch the embedding model. Indexing, searching, graph operations — all local.
+Yes, after the first `ollama pull nomic-embed-text` to fetch the embedding model (and `brew install neo4j` if you want the graph plugin). Indexing, searching, graph operations — all local.
 
 ### How do I share the knowledge base across teammates?
 
@@ -344,11 +350,12 @@ Yes — one server per project. They share a single graph daemon and discover ea
 **Graph daemon "not reachable"**
 - `guru graph status` shows daemon + Neo4j health
 - `guru graph start` forces the daemon to start now (instead of waiting for the lazy spawn)
-- Subprocess mode needs Java 21+ on `PATH`. To check: `java --version`
-- For an externally-managed Neo4j, set `GURU_NEO4J_BOLT_URI` and the daemon will connect instead of spawning
+- Subprocess mode needs both **Java 17+** and **Neo4j 5.x** on `PATH`. To check: `java -version` and `neo4j --version`. Install on macOS with `brew install openjdk@17 neo4j`; on Debian/Ubuntu with `apt install openjdk-17-jre neo4j`. Neither is bundled with guru.
+- For an externally-managed Neo4j, set `GURU_NEO4J_BOLT_URI` (e.g. `bolt://127.0.0.1:7687`) and the daemon will connect instead of spawning. No local Java/Neo4j install is needed in this mode.
 
 **`guru graph *` says "graph is disabled"**
-- The graph is opted out in your config. Set `graph.enabled: true` in `.guru.json` (the default — absence means enabled)
+- The graph is opted out in your config. To enable it, set `graph.enabled: true` in `.guru.json` (the default — absence of the key means enabled).
+- If you don't want the graph at all, this message is the expected behaviour; the rest of guru works as normal.
 
 **A YAML or JSON file is showing as `valid=false` in the graph**
 - Malformed YAML doesn't crash the index. The file landed as a single `Document` node with `valid=False` and the parse error in its properties. Fix the YAML and re-index.
