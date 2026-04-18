@@ -35,6 +35,17 @@ class IngestService:
         `kb_name` is currently carried for logging/future multi-tenancy
         checks; the document's node_id already encodes the kb (`{kb}::{rel_path}`).
         """
+        # Non-transactional: backend calls run in sequence. A mid-sequence failure
+        # can leave the graph partially updated (e.g. upsert completes, snapshot
+        # not written). Next submit will re-diff from the stale snapshot and
+        # self-heal. See Task 2.5 review for context.
+        logger.debug(
+            "ingest.submit kb=%s doc_id=%s nodes=%d edges=%d",
+            kb_name,
+            payload.document.node_id,
+            len(payload.nodes),
+            len(payload.edges),
+        )
         doc_id = payload.document.node_id
         prev_ids = set(self._backend.get_document_snapshot(doc_id=doc_id))
         current_ids = {n.node_id for n in payload.nodes}
@@ -45,6 +56,9 @@ class IngestService:
             all_victims: list[str] = []
             for nid in to_delete_roots:
                 all_victims.extend(self._backend.delete_artifact_with_descendants(node_id=nid))
+            # Deduplicate while preserving first-seen order (diamonds in CONTAINS are
+            # unlikely but not structurally forbidden).
+            all_victims = list(dict.fromkeys(all_victims))
             if all_victims:
                 # Orphan annotations BEFORE deleting, so the annotation
                 # loses its :ANNOTATES edge but survives.
@@ -71,7 +85,9 @@ class IngestService:
             if e.rel_type == "CONTAINS":
                 self._backend.create_contains_edge(from_id=e.from_id, to_id=e.to_id)
             else:  # "RELATES"
-                assert e.kind is not None  # Pydantic validator ensures this
+                if e.kind is None:
+                    # Pydantic validator should have rejected this upstream; guard for -O runs.
+                    raise ValueError(f"RELATES edge from {e.from_id} to {e.to_id} missing kind")
                 self._backend.create_relates_edge(
                     from_id=e.from_id,
                     to_id=e.to_id,
@@ -88,6 +104,7 @@ class IngestService:
         Annotations targeting any deleted node are orphaned (target_id → None).
         Safe to call on a non-existent document (no-op).
         """
+        logger.debug("ingest.delete_document kb=%s doc_id=%s", kb_name, doc_id)
         victims = self._backend.delete_artifact_with_descendants(node_id=doc_id)
         if not victims:
             return

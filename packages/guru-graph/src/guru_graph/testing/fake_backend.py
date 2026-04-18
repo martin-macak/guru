@@ -224,6 +224,8 @@ class FakeBackend:
 
     def delete_artifact_with_descendants(self, *, node_id: str) -> list[str]:
         """See :meth:`ArtifactOpsBackend.delete_artifact_with_descendants`."""
+        if node_id not in self._artifacts:
+            return []
         # BFS over CONTAINS edges starting from node_id.
         result: list[str] = [node_id]
         seen: set[str] = {node_id}

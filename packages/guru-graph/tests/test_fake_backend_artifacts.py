@@ -243,3 +243,7 @@ def test_get_document_snapshot_and_set_document_snapshot_roundtrip(backend: Fake
     snap = backend.get_document_snapshot(doc_id="doc")
     snap.append("mut")
     assert backend.get_document_snapshot(doc_id="doc") == ["a", "b", "c"]
+
+
+def test_delete_artifact_with_descendants_returns_empty_for_missing_node(backend: FakeBackend):
+    assert backend.delete_artifact_with_descendants(node_id="kb::ghost") == []

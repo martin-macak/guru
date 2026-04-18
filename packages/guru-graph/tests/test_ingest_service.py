@@ -110,3 +110,20 @@ def test_delete_nonexistent_document_is_noop():
     backend.start()
     svc = IngestService(backend=backend)
     svc.delete_document("kb", "kb::ghost.md")  # no exception
+
+
+def test_submit_deduplicates_shared_descendants_between_roots():
+    """If two removed-roots share a CONTAINS descendant, victims list has no duplicates."""
+    backend = FakeBackend()
+    backend.start()
+    svc = IngestService(backend=backend)
+    # Initial: doc -> A -> shared; doc -> B -> shared (diamond via CONTAINS)
+    svc.submit("kb", _payload("kb::x.md", ["kb::x.md::A", "kb::x.md::B", "kb::x.md::shared"]))
+    backend.create_contains_edge(from_id="kb::x.md::A", to_id="kb::x.md::shared")
+    backend.create_contains_edge(from_id="kb::x.md::B", to_id="kb::x.md::shared")
+    # Now re-submit with A and B both gone (so 'shared' is a descendant of both roots being deleted).
+    svc.submit("kb", _payload("kb::x.md", []))
+    # All three should be gone.
+    assert backend.get_artifact(node_id="kb::x.md::A") is None
+    assert backend.get_artifact(node_id="kb::x.md::B") is None
+    assert backend.get_artifact(node_id="kb::x.md::shared") is None

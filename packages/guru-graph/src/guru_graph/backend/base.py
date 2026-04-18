@@ -123,6 +123,7 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
         first collect the subtree, then orphan annotations targeting any node
         in the subtree, then call :meth:`delete_artifact` for each id. Order
         of the returned list is unspecified — sort if you need determinism.
+        Returns an empty list if `node_id` is not present in the graph.
         """
         ...
 
