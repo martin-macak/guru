@@ -47,6 +47,7 @@ def _create_standard_project() -> Path:
                 "labels": ["spec"],
             },
         ],
+        "graph": {"enabled": False},
     }
     (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
 
@@ -154,6 +155,7 @@ def _create_semantic_project() -> Path:
                 "labels": ["note"],
             },
         ],
+        "graph": {"enabled": False},
     }
     (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
 
@@ -280,6 +282,7 @@ def _create_gitignore_project() -> Path:
                 "labels": ["documentation"],
             },
         ],
+        "graph": {"enabled": False},
     }
     (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
 
@@ -422,6 +425,7 @@ def _create_federation_project(name: str, base_dir: Path, fed_dir: Path) -> Path
                 "labels": ["documentation"],
             },
         ],
+        "graph": {"enabled": False},
     }
     (project_dir / ".guru.json").write_text(json.dumps(config, indent=2))
 
