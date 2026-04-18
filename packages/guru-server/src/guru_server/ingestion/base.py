@@ -18,7 +18,14 @@ class Chunk:
     labels: list[str] = field(default_factory=list)
     parent_chunk_id: str | None = None
     chunk_id: str | None = None
-    content_type: str = "text"  # "text", "code", "table", "mixed"
+    content_type: str = "text"  # "text" | "code" | "table" | "mixed"
+    # Artifact-graph metadata (PR-1 additions):
+    kind: str = (
+        "text"  # "text" | "code" | "openapi_operation" | "openapi_schema" | "markdown_section"
+    )
+    language: str | None = None
+    artifact_qualname: str | None = None
+    parent_document_id: str | None = None
 
 
 class DocumentParser(ABC):
