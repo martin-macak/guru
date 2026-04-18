@@ -288,3 +288,36 @@ class ArtifactUnlink(BaseModel):
     from_id: str
     to_id: str
     kind: ArtifactLinkKind
+
+
+class ArtifactNode(BaseModel):
+    """Wire representation of an Artifact, with annotations and links inline."""
+
+    model_config = ConfigDict(extra="ignore")
+    id: str
+    label: str
+    properties: dict[str, Any]
+    annotations: list[AnnotationNode] = Field(default_factory=list)
+    links_out: list[ArtifactLink] = Field(default_factory=list)
+    links_in: list[ArtifactLink] = Field(default_factory=list)
+
+
+class ArtifactNeighborsResult(BaseModel):
+    """Result of GET /artifacts/{id}/neighbors — nodes + the edges connecting them."""
+
+    model_config = ConfigDict(extra="ignore")
+    node_id: str
+    nodes: list[ArtifactNode]
+    edges: list[GraphEdgePayload]
+
+
+class ArtifactFindQuery(BaseModel):
+    """Request body for POST /artifacts/find."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = None
+    qualname_prefix: str | None = None
+    label: str | None = None
+    tag: str | None = None
+    kb_name: str | None = None
+    limit: int = 50

@@ -22,9 +22,12 @@ from .graph_errors import GraphUnavailable
 from .graph_types import (
     AnnotationCreate,
     AnnotationNode,
+    ArtifactFindQuery,  # used at runtime in find_artifacts body
     ArtifactLink,
     ArtifactLinkCreate,
     ArtifactLinkKind,
+    ArtifactNeighborsResult,  # used at runtime in neighbors body
+    ArtifactNode,  # used at runtime in describe_artifact/find_artifacts bodies
     CypherQuery,
     Health,
     KbLink,
@@ -287,6 +290,55 @@ class GraphClient:
         if resp.status_code == 404:
             return False
         raise GraphUnavailable(f"unexpected status from DELETE /relates: {resp.status_code}")
+
+    async def describe_artifact(self, *, node_id: str) -> ArtifactNode | None:
+        """Fetch an Artifact by id with its annotations + RELATES links inline.
+
+        Returns None if no node with `node_id` exists. Raises GraphUnavailable
+        on transport, protocol, or daemon errors.
+        """
+        resp = await self._request("GET", f"/artifacts/{quote(node_id, safe='')}")
+        if resp.status_code == 404:
+            return None
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from GET /artifacts/{node_id}: {resp.status_code}"
+            )
+        return ArtifactNode.model_validate(resp.json())
+
+    async def neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: Literal["in", "out", "both"] = "both",
+        rel_type: Literal["CONTAINS", "RELATES", "both"] = "both",
+        kind: str | None = None,
+        depth: int = 1,
+        limit: int = 50,
+    ) -> ArtifactNeighborsResult:
+        """Walk neighbors of `node_id` up to `depth` hops, filtered by direction/rel_type/kind."""
+        qs = f"?direction={direction}&rel_type={rel_type}&depth={depth}&limit={limit}"
+        if kind:
+            qs += f"&kind={quote(kind)}"
+        resp = await self._request("GET", f"/artifacts/{quote(node_id, safe='')}/neighbors{qs}")
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from GET /artifacts/{node_id}/neighbors: {resp.status_code}"
+            )
+        return ArtifactNeighborsResult.model_validate(resp.json())
+
+    async def find_artifacts(self, q: ArtifactFindQuery) -> list[ArtifactNode]:
+        """Search for artifacts matching the given filters. Empty list if none."""
+        resp = await self._request("POST", "/artifacts/find", json=q.model_dump(exclude_none=True))
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from POST /artifacts/find: {resp.status_code}"
+            )
+        return [ArtifactNode.model_validate(r) for r in resp.json()]
+
+    async def graph_query(self, *, cypher: str, params: dict | None = None) -> QueryResult:
+        """Read-only Cypher query — forces read_only=True regardless of caller intent."""
+        return await self.query(cypher=cypher, params=params, read_only=True)
 
     async def create_annotation(self, req: AnnotationCreate, *, author: str) -> AnnotationNode:
         """Create an annotation. Returns the resulting AnnotationNode.
