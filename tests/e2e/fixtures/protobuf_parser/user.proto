@@ -1,0 +1,12 @@
+// Test fixture for parser_extensibility.feature.
+syntax = "proto3";
+package example.users;
+
+message User {
+  string id = 1;
+  string email = 2;
+}
+
+service UserService {
+  rpc GetUser(User) returns (User);
+}

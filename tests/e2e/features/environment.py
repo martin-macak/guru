@@ -689,6 +689,7 @@ def before_feature(context, feature):
         or "artifact_links" in feature.filename
         or "graph_mcp_tools" in feature.filename
         or "skill_distribution" in feature.filename
+        or "parser_extensibility" in feature.filename
     ):
         import os as _os
         import tempfile as _tempfile
@@ -806,6 +807,7 @@ def after_feature(context, feature):
         or "artifact_links" in feature.filename
         or "graph_mcp_tools" in feature.filename
         or "skill_distribution" in feature.filename
+        or "parser_extensibility" in feature.filename
     ):
         import contextlib as _ctx
         import os as _os

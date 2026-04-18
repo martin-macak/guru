@@ -14,6 +14,7 @@ from guru_server.embedding import OllamaEmbedder
 from guru_server.graph_integration import build_graph_client_if_enabled, register_self_kb
 from guru_server.indexer import BackgroundIndexer
 from guru_server.ingestion.markdown import MarkdownParser
+from guru_server.ingestion.python import PythonParser
 from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
@@ -114,6 +115,58 @@ async def lifespan(app: FastAPI):
             await watcher_task
 
 
+def _detect_package_roots(project_root: Path) -> list[Path]:
+    """Find Python package roots inside the project.
+
+    A "package root" is the parent directory of a top-level package — i.e. the
+    directory from which importable dotted-paths begin. Walk the project tree
+    looking for directories that contain ``__init__.py``, then trace upward
+    until the ancestor no longer has ``__init__.py`` (or we hit project_root);
+    that ancestor's parent is the root.
+
+    Skips ``.git``, ``.venv``, ``.guru``, ``node_modules``, ``__pycache__``,
+    and similar noisy directories so a large repo doesn't make startup hang.
+    """
+    _SKIP = {
+        ".git",
+        ".venv",
+        ".guru",
+        ".agents",
+        ".claude",
+        "node_modules",
+        "__pycache__",
+        "dist",
+        "build",
+        ".tox",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+    }
+    roots: set[Path] = set()
+    project_root = project_root.resolve()
+    if not project_root.exists():
+        return []
+    for init_file in project_root.rglob("__init__.py"):
+        if any(part in _SKIP for part in init_file.relative_to(project_root).parts):
+            continue
+        # Walk up until the ancestor has no __init__.py.
+        top = init_file.parent
+        while (top.parent / "__init__.py").exists() and top.parent != project_root:
+            top = top.parent
+        candidate = top.parent
+        roots.add(candidate)
+    # Fallback: only include project_root when no package roots were detected
+    # so bare-module projects (no __init__.py anywhere) still resolve to a
+    # sensible qualname. When a real package root exists, project_root would
+    # only confuse the parser (e.g. "src/pkg/auth.py" → "src.pkg.auth" instead
+    # of "pkg.auth"), so don't add it.
+    if not roots:
+        roots.add(project_root)
+    # Sort by depth descending — most specific root wins when the parser
+    # iterates in `_derive_module_qualname`.
+    return sorted(roots, key=lambda p: (-len(p.parts), str(p)))
+
+
 def create_app(
     store: VectorStore | None = None,
     embedder: OllamaEmbedder | None = None,
@@ -156,9 +209,12 @@ def create_app(
     )
 
     # Build parser registry — the extension point for ingestion formats.
-    # Future parsers (Python, OpenAPI) register here with no core change.
+    # Future parsers (OpenAPI) register here with no core change.
     parser_registry = ParserRegistry()
     parser_registry.register(MarkdownParser())
+    parser_registry.register(
+        PythonParser(package_roots=_detect_package_roots(Path(app.state.project_root)))
+    )
     app.state.parser_registry = parser_registry
 
     # Build graph client before BackgroundIndexer so it can be passed in.

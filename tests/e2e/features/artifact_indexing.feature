@@ -11,7 +11,8 @@ Feature: Artifact graph indexing for Python, OpenAPI, and Markdown
     And at least one (:MarkdownSection) node under docs/guide.md exists
     And LanceDB contains chunks for docs/guide.md with kind="markdown_section"
 
-  @skip_until_pr7 @real_neo4j @real_ollama
+  # Still mentions api/openapi.yaml — depends on PR-8 (OpenAPI parser).
+  @skip_until_pr8 @real_neo4j @real_ollama
   Scenario: Fresh index populates LanceDB and graph in lockstep
     Given graph is enabled
     When I run 'guru index'
@@ -22,12 +23,15 @@ Feature: Artifact graph indexing for Python, OpenAPI, and Markdown
     And api/openapi.yaml has one (:OpenApiSpec) + N (:OpenApiOperation) + M (:OpenApiSchema)
     And docs/guide.md has (:MarkdownSection) nodes matching its H2/H3 headings
 
-  @skip_until_pr7 @real_neo4j
+  @real_neo4j
   Scenario: Parser emits structural imports and inheritance
+    Given graph is enabled
     When I run 'guru index'
     Then (:Module "pkg.auth")-[:RELATES {kind:"imports"}]->(:Module "pkg.services.user") exists
     And for every `class Derived(Base):`, (:Class)-[:RELATES {kind:"inherits_from"}]-> exists
 
+  # Steps for "no commits to Neo4j" require a transaction-counting hook the
+  # graph daemon doesn't yet expose; un-skip in a follow-up PR.
   @skip_until_pr7 @real_neo4j
   Scenario: Re-indexing an unchanged file is a no-op in the graph
     Given `guru index` has run once
@@ -36,6 +40,8 @@ Feature: Artifact graph indexing for Python, OpenAPI, and Markdown
     Then every (:Document).updated_at is unchanged
     And no transactions were committed to Neo4j beyond reads
 
+  # Diff-reconciliation BDD steps (file editing + per-method assertions) not
+  # yet authored; un-skip in a follow-up PR.
   @skip_until_pr7 @real_neo4j
   Scenario: Editing a file adds/removes artifacts via diff reconciliation
     Given `guru index` has run once
@@ -46,6 +52,9 @@ Feature: Artifact graph indexing for Python, OpenAPI, and Markdown
     And (:Method "pkg.services.user.UserService.deprecated_fn") does not exist
     And no other (:Method) node under UserService was touched
 
+  # Cascade-orphan BDD steps share the annotation/orphan plumbing exercised by
+  # orphan_triage.feature; the file-delete + cascade wiring is not yet authored
+  # for this fixture.
   @skip_until_pr7 @real_neo4j
   Scenario: Deleting a file cascades and creates orphans
     Given an annotation was written on (:Function "pkg.auth.hash_password")
@@ -55,11 +64,3 @@ Feature: Artifact graph indexing for Python, OpenAPI, and Markdown
     And no (:Module "pkg.auth") exists
     And the annotation is now an orphan (no outgoing :ANNOTATES edge)
     And graph_orphans() returns it with target_snapshot_json pointing at "pkg.auth.hash_password"
-
-  @skip_until_pr7
-  Scenario: Extensible parser registration works without core change
-    Given a test parser "ProtobufParser" is registered at startup
-    And the fixture has a file api/schema.proto
-    When I run `guru index`
-    Then the ProtobufParser was dispatched for api/schema.proto
-    And the emitted (:Document) + custom labels are present in the graph
