@@ -66,7 +66,7 @@ def test_init_installs_skill(tmp_path: Path):
     with runner.isolated_filesystem(temp_dir=tmp_path):
         result = runner.invoke(init, [])
         assert result.exit_code == 0, result.output
-        assert "installed skill" in result.output
+        assert "Installed skill" in result.output
         assert Path(".claude/skills/guru-knowledge-base/SKILL.md").exists()
         assert Path(".claude/skills/guru-knowledge-base/MANIFEST.json").exists()
         # .agents symlink (or copy on Windows) should also be in place.

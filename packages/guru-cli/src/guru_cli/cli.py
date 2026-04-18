@@ -114,8 +114,12 @@ def init():
         guru_version = pkg_version("guru-cli")
     except Exception:
         guru_version = "0.0.0"
-    installed = install_skill(cwd, guru_version=guru_version)
-    click.echo(f"installed skill: .claude/skills/guru-knowledge-base ({len(installed)} files)")
+    try:
+        installed = install_skill(cwd, guru_version=guru_version)
+    except Exception as e:
+        click.echo(f"Warning: skill install failed: {e}", err=True)
+    else:
+        click.echo(f"Installed skill: .claude/skills/guru-knowledge-base ({len(installed)} files)")
 
 
 def _init_mcp_json(mcp_json: Path) -> None:
