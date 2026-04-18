@@ -62,6 +62,7 @@ class SearchResultOut(BaseModel):
     score: float
     labels: list[str] = Field(default_factory=list)
     chunk_level: int
+    artifact_qualname: str | None = None
 
 
 class DocumentListItem(BaseModel):

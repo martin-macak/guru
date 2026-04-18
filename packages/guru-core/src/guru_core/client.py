@@ -89,6 +89,9 @@ class GuruClient:
     async def status(self) -> dict:
         return await self._get("/status")
 
+    async def web_open(self) -> dict:
+        return await self._post("/web/open", {})
+
     async def search(self, query: str, n_results: int = 10, filters: dict | None = None) -> list:
         return await self._post(
             "/search",

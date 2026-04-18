@@ -172,7 +172,7 @@ def test_describe_forwards_node_id_and_returns_node():
     resp = tc.get("/graph/describe/module/foo.py")
     assert resp.status_code == 200
     assert resp.json()["id"] == "module/foo.py"
-    client.describe_artifact.assert_awaited_once_with(node_id="module/foo.py")
+    client.describe_artifact.assert_awaited_once_with("module/foo.py")
 
 
 def test_describe_returns_404_when_client_returns_none():
@@ -212,7 +212,7 @@ def test_neighbors_forwards_query_params():
     )
     assert resp.status_code == 200
     client.neighbors.assert_awaited_once_with(
-        node_id="n1",
+        "n1",
         direction="out",
         rel_type="RELATES",
         kind="imports",

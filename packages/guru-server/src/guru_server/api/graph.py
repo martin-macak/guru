@@ -36,20 +36,10 @@ router = APIRouter(prefix="/graph")
 
 
 def _graph_disabled_body() -> dict:
-    return {
-        "status": "graph_disabled",
-        "hint": "set graph.enabled=true in config (or reach the daemon)",
-    }
+    return {"status": "graph_disabled"}
 
 
 def _author_from_headers(request: Request, explicit: str | None) -> str:
-    """Decide the author string to stamp on a write call.
-
-    Order of precedence:
-      1. ``X-Guru-Author`` header explicitly passed by the caller.
-      2. ``agent:<x-guru-mcp-client>`` if the MCP client identified itself.
-      3. ``user:unknown`` fallback.
-    """
     if explicit:
         return explicit
     client = request.headers.get("x-guru-mcp-client")
@@ -62,16 +52,13 @@ def _client_or_none(request: Request) -> GraphClient | None:
     return getattr(request.app.state, "graph_client", None)
 
 
-# --- Read routes ---
-
-
 @router.get("/describe/{node_id:path}")
 async def proxy_describe(node_id: str, request: Request) -> JSONResponse:
     client = _client_or_none(request)
     if client is None:
         return JSONResponse(_graph_disabled_body())
     try:
-        node = await client.describe_artifact(node_id=node_id)
+        node = await client.describe_artifact(node_id)
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
     if node is None:
@@ -97,7 +84,7 @@ async def proxy_neighbors(
         return JSONResponse(_graph_disabled_body())
     try:
         result = await client.neighbors(
-            node_id=node_id,
+            node_id,
             direction=direction,
             rel_type=rel_type,
             kind=kind,
@@ -119,9 +106,6 @@ async def proxy_find(q: ArtifactFindQuery, request: Request) -> JSONResponse:
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
     return JSONResponse([r.model_dump(mode="json") for r in results])
-
-
-# --- Annotation routes ---
 
 
 @router.post("/annotations")
@@ -158,9 +142,6 @@ async def proxy_delete_annotation(annotation_id: str, request: Request) -> JSONR
     return JSONResponse({"deleted": True})
 
 
-# --- Link routes ---
-
-
 @router.post("/links")
 async def proxy_create_link(
     body: ArtifactLinkCreate,
@@ -195,9 +176,6 @@ async def proxy_delete_link(body: ArtifactUnlink, request: Request) -> JSONRespo
     return JSONResponse({"deleted": True})
 
 
-# --- Orphan routes ---
-
-
 @router.get("/orphans")
 async def proxy_list_orphans(request: Request, limit: int = 50) -> JSONResponse:
     client = _client_or_none(request)
@@ -226,18 +204,12 @@ async def proxy_reattach_orphan(
     return JSONResponse(ann.model_dump(mode="json"))
 
 
-# --- Query route (read-only enforced) ---
-
-
 @router.post("/query")
 async def proxy_query(body: CypherQuery, request: Request) -> JSONResponse:
     client = _client_or_none(request)
     if client is None:
         return JSONResponse(_graph_disabled_body())
     try:
-        # FORCE read-only regardless of body.read_only - proxy clients
-        # (MCP, CLI) must never write via Cypher. Writes go through the
-        # typed endpoints above.
         result = await client.graph_query(cypher=body.cypher, params=body.params)
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())

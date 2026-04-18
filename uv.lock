@@ -18,6 +18,7 @@ members = [
     "guru-graph",
     "guru-mcp",
     "guru-server",
+    "guru-web",
 ]
 
 [[package]]
@@ -996,6 +997,11 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
 ]
+
+[[package]]
+name = "guru-web"
+version = "0.0.0"
+source = { virtual = "packages/guru-web" }
 
 [[package]]
 name = "h11"

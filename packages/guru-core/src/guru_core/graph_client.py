@@ -291,7 +291,7 @@ class GraphClient:
             return False
         raise GraphUnavailable(f"unexpected status from DELETE /relates: {resp.status_code}")
 
-    async def describe_artifact(self, *, node_id: str) -> ArtifactNode | None:
+    async def describe_artifact(self, node_id: str) -> ArtifactNode | None:
         """Fetch an Artifact by id with its annotations + RELATES links inline.
 
         Returns None if no node with `node_id` exists. Raises GraphUnavailable
@@ -308,7 +308,6 @@ class GraphClient:
 
     async def neighbors(
         self,
-        *,
         node_id: str,
         direction: Literal["in", "out", "both"] = "both",
         rel_type: Literal["CONTAINS", "RELATES", "both"] = "both",

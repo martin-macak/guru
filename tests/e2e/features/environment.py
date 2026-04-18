@@ -709,6 +709,9 @@ def before_feature(context, feature):
         _os.environ["GURU_GRAPH_HOME"] = _os.path.join(context.graph_tmp, "home")
         return
 
+    if "tui_mocked" in feature.tags:
+        return
+
     # Isolate the embedding cache per feature so scenarios don't pollute each other
     cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
     os.close(cache_fd)

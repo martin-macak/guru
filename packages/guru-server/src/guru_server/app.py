@@ -6,9 +6,11 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
-from guru_core.types import GuruConfig
 from guru_server.api import api_router
+from guru_server.api.web import router as web_router
+from guru_server.config import GuruConfig, resolve_web_config
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
 from guru_server.graph_integration import build_graph_client_if_enabled, register_self_kb
@@ -20,6 +22,7 @@ from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
 from guru_server.storage import VectorStore
+from guru_server.web_runtime import build_web_runtime, resolve_web_assets_dir
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +211,13 @@ def create_app(
     app.state.project_name = (
         project_name or app.state.config.name or Path(app.state.project_root).name
     )
+    web_config = resolve_web_config(app.state.config)
+    app.state.web_runtime = build_web_runtime(
+        project_root=Path(app.state.project_root),
+        assets_dir=resolve_web_assets_dir(Path(app.state.project_root)),
+        enabled=bool(web_config.enabled),
+        auto_open=bool(web_config.auto_open),
+    )
 
     # Build parser registry — the extension point for ingestion formats.
     # Registered in priority order: Markdown for .md, Python for .py,
@@ -223,7 +233,6 @@ def create_app(
     parser_registry.register(OpenApiParser())
     app.state.parser_registry = parser_registry
 
-    # Build graph client before BackgroundIndexer so it can be passed in.
     graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
     app.state.graph_enabled = graph_enabled
     app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
@@ -245,4 +254,9 @@ def create_app(
         app.state.indexer = None
 
     app.include_router(api_router)
+    app.include_router(web_router)
+    if app.state.web_runtime.available and app.state.web_runtime.assets_dir is not None:
+        app.mount(
+            "/", StaticFiles(directory=app.state.web_runtime.assets_dir, html=True), name="web"
+        )
     return app
