@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 import { apiClient } from "../../lib/api/client";
 import { useWorkbench } from "../../lib/state/workbench";
+import { computePathToRoot } from "./computePathToRoot";
 import { useGraphCanvas } from "./useGraphCanvas";
 import { useGraphRoots } from "./useGraphRoots";
 
@@ -23,9 +24,19 @@ export function GraphPage() {
     canvas.mergeNeighbors(node.id, payload);
   }
 
+  const localKbName = roots.data.kbs[0]?.name ?? "local";
+  const overlayEdges = computePathToRoot(canvas.selectedId, localKbName).map((e) => ({
+    id: `overlay:${e.source}->${e.target}`,
+    source: e.source,
+    target: e.target,
+    style: { strokeDasharray: "6 4", stroke: "#a855f7" },
+    animated: true,
+    label: "hierarchy",
+  }));
+
   return (
     <div className="flex flex-1">
-      <ReactFlow nodes={canvas.nodes} edges={canvas.edges} onNodeClick={onNodeClick}>
+      <ReactFlow nodes={canvas.nodes} edges={[...canvas.edges, ...overlayEdges]} onNodeClick={onNodeClick}>
         <Background />
         <Controls />
       </ReactFlow>
