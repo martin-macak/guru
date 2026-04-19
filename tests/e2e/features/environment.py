@@ -134,6 +134,9 @@ def _create_empty_web_project() -> Path:
     The feature steps write their own documents into ``docs/`` (which matches
     the ``docs/**/*.md`` rule). Keeping the fixture empty gives the web BDD
     scenarios a clean, minimal document list.
+
+    The project is named ``local`` so graph-surface scenarios can reference
+    the KB as ``kb:local`` regardless of the random tmpdir name.
     """
     tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
 
@@ -143,6 +146,7 @@ def _create_empty_web_project() -> Path:
 
     config = {
         "version": 1,
+        "name": "local",
         "rules": [
             {
                 "ruleName": "docs",
@@ -440,9 +444,42 @@ def _start_server(
     return server, thread
 
 
+def _create_web_graph_project() -> Path:
+    """Empty project for @web @graph_surface features.
+
+    Graph is disabled in config — the test harness enables it in-process
+    via context.app.state after the server starts (so a real Neo4j is not
+    needed for basic canvas scenarios).
+    """
+    tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
+
+    guru_dir = tmp_path / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+        # graph.enabled=false in config; the harness injects a FakeBackend
+        # graph_client directly into app.state so no real daemon is needed.
+        "graph": {"enabled": False},
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    (tmp_path / "docs").mkdir()
+
+    return tmp_path
+
+
 def _start_web_server(
     project_dir: Path, embedder: OllamaEmbedder, tcp_port: int
-) -> tuple[uvicorn.Server, threading.Thread]:
+) -> tuple[uvicorn.Server, threading.Thread, object]:
     """Start a guru-server that listens on BOTH UDS and a TCP port.
 
     The UDS socket is used by the CLI steps; the TCP port is the base URL
@@ -511,7 +548,9 @@ def _start_web_server(
     else:
         raise RuntimeError(f"guru-server (web/TCP) did not start within 15 s on port {tcp_port}")
 
-    return server, thread
+    # Return the app object so callers can inject state (e.g. a FakeBackend
+    # graph_client) without restarting the server.
+    return server, thread, app
 
 
 def _create_federation_project(name: str, base_dir: Path, fed_dir: Path) -> Path:
@@ -888,7 +927,7 @@ def before_feature(context, feature):
             _sock.bind(("127.0.0.1", 0))
             _web_port = _sock.getsockname()[1]
         context.server_url = f"http://127.0.0.1:{_web_port}"
-        context.server, context.server_thread = _start_web_server(
+        context.server, context.server_thread, context.app = _start_web_server(
             context.project_dir, context.embedder, _web_port
         )
     else:

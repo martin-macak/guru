@@ -106,14 +106,49 @@ async def proxy_neighbors(
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
     payload = result.model_dump(mode="json")
-    nodes = [n for n in payload.get("nodes", []) if n.get("kind") in _WEB_ALLOWED_KINDS]
-    kept_ids = {n["id"] for n in nodes}
-    edges = [
-        e
-        for e in payload.get("edges", [])
-        if e.get("from_id") in kept_ids and e.get("to_id") in kept_ids
+
+    # The `kind` field may appear either at the top level of a node (e.g. a
+    # GraphNodeOut) or nested inside `properties` (e.g. a serialised
+    # ArtifactNode). Accept either location so both code paths work.
+    def _node_kind(n: dict) -> str | None:
+        top_kind = n.get("kind")
+        if top_kind is not None:
+            return top_kind
+        return (n.get("properties") or {}).get("kind")
+
+    # Transform ArtifactNode-shaped dicts into the web-UI-expected format:
+    # { id, label, kind, kb? }. The web canvas hook (useGraphCanvas) reads
+    # n.id / n.label / n.kind / n.kb — not n.properties.kind.
+    def _to_web_node(n: dict) -> dict:
+        kind = _node_kind(n)
+        props = n.get("properties") or {}
+        return {
+            "id": n["id"],
+            "label": n.get("label", n["id"]),
+            "kind": kind or "unknown",
+            "kb": props.get("kb_name") or props.get("kb"),
+        }
+
+    # Transform edges: ArtifactNeighborsResult uses from_id/to_id; the web
+    # canvas hook expects source/target.
+    def _to_web_edge(e: dict) -> dict:
+        return {
+            "source": e.get("from_id", e.get("source", "")),
+            "target": e.get("to_id", e.get("target", "")),
+            "kind": e.get("kind") or e.get("rel_type") or "",
+        }
+
+    raw_nodes = payload.get("nodes", [])
+    filtered_nodes = [_to_web_node(n) for n in raw_nodes if _node_kind(n) in _WEB_ALLOWED_KINDS]
+    kept_ids = {n["id"] for n in filtered_nodes}
+    raw_edges = payload.get("edges", [])
+    web_edges = [
+        _to_web_edge(e)
+        for e in raw_edges
+        if (e.get("from_id") or e.get("source")) in kept_ids
+        and (e.get("to_id") or e.get("target")) in kept_ids
     ]
-    return JSONResponse({"nodes": nodes, "edges": edges})
+    return JSONResponse({"nodes": filtered_nodes, "edges": web_edges})
 
 
 @router.post("/find")

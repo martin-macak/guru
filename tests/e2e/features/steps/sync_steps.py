@@ -85,11 +85,35 @@ def step_fresh_harness(context):
 
 @given("the graph daemon is enabled")
 def step_graph_enabled_given(context):
+    """Enable graph for the current harness.
+
+    This step is shared between the sync_invariant feature (in-process
+    SyncService fakes) and the web_graph feature (injects a mock
+    graph_client into the running server). Dispatch based on which
+    context attributes the active scenario provides.
+    """
+    app = getattr(context, "app", None)
+    if app is not None:
+        # Web scenario: delegate to the web_graph_steps helper so we keep
+        # the mock construction in one place.
+        from tests.e2e.features.steps.web_graph_steps import (
+            _enable_graph_for_web_scenario,
+        )
+
+        _enable_graph_for_web_scenario(context)
+        return
+    # Sync-invariant scenario: flip the in-process fake.
     context.graph.set_enabled(True)
 
 
 @given("the graph daemon is disabled")
 def step_graph_disabled_given(context):
+    """Disable graph for the current harness (web or in-process)."""
+    app = getattr(context, "app", None)
+    if app is not None:
+        app.state.graph_client = None
+        app.state.graph_enabled = False
+        return
     context.graph.set_enabled(False)
 
 

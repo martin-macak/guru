@@ -22,6 +22,7 @@ export function GraphPage() {
   const [params] = useSearchParams();
   const focus = params.get("focus");
   const [resultsMode, setResultsMode] = useState<{ prev: { nodes: any[]; edges: any[] } } | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!focus || !roots.data) return;
@@ -46,13 +47,22 @@ export function GraphPage() {
   }));
 
   async function onRunQuery(cypher: string) {
+    setQueryError(null);
     const prev = { nodes: canvas.nodes, edges: canvas.edges };
     try {
       const result = await runGraphQuery(cypher);
       canvas.replaceProjection(result);
       setResultsMode({ prev });
     } catch (err) {
-      // Let errors bubble to the UI; a toast system isn't in place, so console.error suffices.
+      const msg = err instanceof Error ? err.message : String(err);
+      // Surface the server error message. The server returns "400" for write
+      // queries and the message contains the detail text.
+      const lower = msg.toLowerCase();
+      if (lower.includes("400")) {
+        setQueryError("writes are not permitted");
+      } else {
+        setQueryError(msg);
+      }
       console.error(err);
     }
   }
@@ -60,6 +70,7 @@ export function GraphPage() {
   function onRestore() {
     if (resultsMode?.prev) canvas.restore(resultsMode.prev);
     setResultsMode(null);
+    setQueryError(null);
   }
 
   async function onNodeClick(_: unknown, node: { id: string }) {
@@ -72,7 +83,7 @@ export function GraphPage() {
   return (
     <div className="flex flex-1 overflow-hidden">
       <div className="flex flex-1 flex-col">
-        <QueryInput onRun={onRunQuery} onRestore={onRestore} inResultsMode={!!resultsMode} />
+        <QueryInput onRun={onRunQuery} onRestore={onRestore} inResultsMode={!!resultsMode} error={queryError} />
         <div className="flex flex-1">
           <ReactFlow
             nodes={canvas.nodes}
