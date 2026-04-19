@@ -67,6 +67,27 @@ export async function getBoot(): Promise<BootPayload> {
   return (await response.json()) as BootPayload;
 }
 
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(resolveApiUrl(path), options);
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${path}`);
+  }
+  return (await response.json()) as T;
+}
+
+export const apiClient = {
+  get<T>(path: string): Promise<T> {
+    return apiFetch<T>(path);
+  },
+  post<T>(path: string, body: unknown): Promise<T> {
+    return apiFetch<T>(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  },
+};
+
 export async function getGraphNeighbors({
   nodeId,
   depth = 1,
