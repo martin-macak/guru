@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { Route, Routes } from "react-router-dom";
 
 import { renderWithRouter } from "../../test/render";
 import { mockServer } from "../../test/msw";
+import { AppShell } from "../../app/layout/AppShell";
 import { GraphPage } from "./GraphPage";
 
 describe("GraphPage", () => {
@@ -23,6 +25,32 @@ describe("GraphPage", () => {
     await screen.findByText("Federation");
     expect(screen.getByText("local")).toBeInTheDocument();
     expect(screen.getByText("peer")).toBeInTheDocument();
+  });
+
+  it("renders exactly one metadata pane when mounted inside AppShell", async () => {
+    mockServer.use(
+      http.get("/graph/roots", () =>
+        HttpResponse.json({
+          federation_root: { id: "federation", label: "Federation" },
+          kbs: [{ name: "local", project_root: "/p", tags: [] }],
+        }),
+      ),
+    );
+    // Mount AppShell with GraphPage as its active Outlet content — the
+    // exact configuration the user sees at /graph. If AppShell renders its
+    // own RightPane in addition to the surface's, this fails with a second
+    // aria-label="Metadata" aside.
+    renderWithRouter(
+      <Routes>
+        <Route path="/" element={<AppShell />}>
+          <Route path="graph" element={<GraphPage />} />
+        </Route>
+      </Routes>,
+      { route: "/graph" },
+    );
+    await screen.findByText("Federation");
+    const panes = screen.getAllByLabelText("Metadata");
+    expect(panes).toHaveLength(1);
   });
 
   it("focuses via ?focus= and draws path-to-root", async () => {

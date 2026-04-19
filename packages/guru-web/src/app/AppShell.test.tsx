@@ -1,8 +1,12 @@
 import { describe, expect, it, beforeEach, vi } from "vitest";
 import { screen, fireEvent } from "@testing-library/react";
+import { Route, Routes } from "react-router-dom";
+import { http, HttpResponse } from "msw";
 
 import { renderWithRouter } from "../test/render";
+import { mockServer } from "../test/msw";
 import { AppShell } from "./layout/AppShell";
+import { DocumentsPage } from "../features/documents/DocumentsPage";
 import { useWorkbench } from "../lib/state/workbench";
 
 // Provide a minimal localStorage mock for environments that don't fully support it
@@ -47,9 +51,19 @@ describe("AppShell", () => {
     expect(screen.queryByText("Operate")).toBeNull();
   });
 
-  it("right pane toggles via button and persists in localStorage", () => {
-    renderWithRouter(<AppShell />, { route: "/documents" });
-    const toggle = screen.getByRole("button", { name: /toggle metadata/i });
+  it("right pane toggles via button and persists in localStorage", async () => {
+    // AppShell doesn't render its own RightPane — surfaces do. Mount
+    // DocumentsPage via the Outlet so the metadata pane appears.
+    mockServer.use(http.get("/documents", () => HttpResponse.json([])));
+    renderWithRouter(
+      <Routes>
+        <Route path="/" element={<AppShell />}>
+          <Route path="documents" element={<DocumentsPage />} />
+        </Route>
+      </Routes>,
+      { route: "/documents" },
+    );
+    const toggle = await screen.findByRole("button", { name: /toggle metadata/i });
     fireEvent.click(toggle);
     expect(
       JSON.parse(localStorage.getItem("guru.workbench.paneState") || "{}").documents,
