@@ -16,6 +16,8 @@ const SERVER_PREFIXES = [
   "/index",
   "/cache",
   "/sync",
+  "/openapi.json",
+  "/docs",
 ];
 
 export default defineConfig({

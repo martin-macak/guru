@@ -152,3 +152,33 @@ def test_main_exits_when_guru_dir_missing(tmp_path: Path, monkeypatch, capsys):
     with pytest.raises(SystemExit) as excinfo:
         dev_mod.main([])
     assert excinfo.value.code == 1
+
+
+def test_main_checks_embedding_model_before_uvicorn(project_dir: Path, monkeypatch):
+    """main() verifies the embedding model is available before starting uvicorn.
+
+    Guards against accidentally removing the check_model_available call —
+    without it, the server would start but fail at the first /search request.
+    """
+    monkeypatch.setenv("GURU_PROJECT_ROOT", str(project_dir))
+    monkeypatch.setenv("GURU_EMBED_CACHE_PATH", str(project_dir / "cache.db"))
+
+    import guru_server.dev as dev_mod
+
+    call_order: list[str] = []
+    monkeypatch.setattr(dev_mod, "check_ollama_installed", lambda: None)
+    monkeypatch.setattr(dev_mod, "start_ollama_serve", lambda: None)
+    monkeypatch.setattr(dev_mod, "stop_ollama_serve", lambda proc: None)
+    monkeypatch.setattr(
+        dev_mod,
+        "check_model_available",
+        lambda model: call_order.append(f"model:{model}"),
+    )
+    monkeypatch.setattr(
+        dev_mod.uvicorn,
+        "run",
+        lambda app_ref, **kw: call_order.append("uvicorn"),
+    )
+
+    dev_mod.main([])
+    assert call_order == ["model:nomic-embed-text", "uvicorn"]
