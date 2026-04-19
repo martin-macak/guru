@@ -21,6 +21,13 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/guru_server"]
+artifacts = ["src/guru_server/web_assets/**"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/guru_server/web_assets/**"]
+
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
     "guru-core=={{ version }}",

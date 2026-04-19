@@ -27,8 +27,10 @@ help:
 	@echo "  CAPABILITIES=all make test-e2e    # every registered capability"
 	@echo ""
 	@echo "Build"
-	@echo "  build              Build all 5 wheels into dist/"
+	@echo "  build-web          Build the web UI (packages/guru-web) and sync to guru-server"
+	@echo "  build              Build all 5 wheels into dist/ (runs build-web first)"
 	@echo "  build-index        Build wheels then generate PEP 503 index into dist/simple/"
+	@echo "  clean-web          Remove built web assets from guru-web and guru-server"
 	@echo ""
 	@echo "Code quality"
 	@echo "  lint               Check code style (ruff check)"
@@ -41,7 +43,7 @@ help:
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
 .PHONY: install
-install:
+install: build-web
 	uv sync --all-packages
 
 # ─── Testing ─────────────────────────────────────────────────────────────────
@@ -88,8 +90,17 @@ test-graph:
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 
+.PHONY: build-web
+build-web:
+	cd packages/guru-web && npm ci && npm run build
+
+.PHONY: clean-web
+clean-web:
+	rm -rf packages/guru-web/dist
+	find packages/guru-server/src/guru_server/web_assets -mindepth 1 ! -name .gitignore -exec rm -rf {} +
+
 .PHONY: build
-build:
+build: build-web
 	@mkdir -p dist
 	@for pkg in $(PACKAGES) .; do \
 		uv build --directory $$pkg --out-dir "$$(pwd)/dist/"; \
@@ -116,7 +127,7 @@ fmt format:
 # ─── Maintenance ─────────────────────────────────────────────────────────────
 
 .PHONY: clean
-clean:
+clean: clean-web
 	rm -rf dist/ build/
 	find . -type d -name __pycache__ -not -path './.git/*' -exec rm -rf {} +
 	find . -type d -name '*.egg-info' -not -path './.git/*' -exec rm -rf {} +
