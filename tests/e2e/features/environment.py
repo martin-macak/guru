@@ -14,6 +14,7 @@ from pathlib import Path
 from pathlib import Path as _Path
 
 import uvicorn
+from playwright.sync_api import sync_playwright
 
 from guru_server.app import create_app
 from guru_server.config import resolve_config
@@ -615,16 +616,37 @@ def before_scenario(context, scenario):
     intentionally under-implemented at this point in the plan. We mark them
     skipped here so behave treats them as skipped rather than erroring on
     undefined steps.
+
+    Scenarios tagged with `@xfail_until_phase_3` are skipped until phase 3
+    web UI work is complete.
     """
+    if "xfail_until_phase_3" in scenario.effective_tags:
+        scenario.skip("Waiting for phase 3")
+        return
+
     for tag in scenario.tags:
         if tag.startswith("skip_until_"):
             scenario.skip(f"pending: {tag}")
             return
 
+    if "web" in scenario.effective_tags:
+        context._playwright = sync_playwright().start()
+        context.browser = context._playwright.chromium.launch(headless=True)
+        context.page = context.browser.new_page()
+
 
 def after_scenario(context, scenario):
-    """Stop any MCP patcher started by a step (graph_mcp_tools.feature)."""
+    """Stop any MCP patcher started by a step (graph_mcp_tools.feature).
+
+    Also closes the Playwright browser if the scenario was tagged @web.
+    """
     import contextlib as _ctx
+
+    if getattr(context, "page", None) is not None:
+        context.page.close()
+        context.browser.close()
+        context._playwright.stop()
+        context.page = None
 
     patcher = getattr(context, "_mcp_patcher", None)
     if patcher is not None:
@@ -710,6 +732,11 @@ def before_feature(context, feature):
         return
 
     if "tui_mocked" in feature.tags:
+        return
+
+    if "web" in feature.tags:
+        # Web feature scenarios start their own server (or are skipped before
+        # they run). Skip the default mocked-embedder server bootstrap here.
         return
 
     # Isolate the embedding cache per feature so scenarios don't pollute each other
