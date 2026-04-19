@@ -17,13 +17,13 @@ export type BootPayload = {
 
 export type RuntimeStatusSnapshot = Pick<BootPayload, "project" | "web" | "graph">;
 
-export type GraphArtifactNode = {
+export type GraphDocumentNode = {
   id: string;
   label: string;
   properties: Record<string, unknown>;
 };
 
-export type GraphArtifactEdge = {
+export type GraphDocumentEdge = {
   from_id: string;
   to_id: string;
   rel_type: "CONTAINS" | "RELATES";
@@ -33,8 +33,8 @@ export type GraphArtifactEdge = {
 
 export type GraphNeighborsPayload = {
   node_id: string;
-  nodes: GraphArtifactNode[];
-  edges: GraphArtifactEdge[];
+  nodes: GraphDocumentNode[];
+  edges: GraphDocumentEdge[];
 };
 
 export type GraphDisabledPayload = {
@@ -66,6 +66,27 @@ export async function getBoot(): Promise<BootPayload> {
 
   return (await response.json()) as BootPayload;
 }
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(resolveApiUrl(path), options);
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${path}`);
+  }
+  return (await response.json()) as T;
+}
+
+export const apiClient = {
+  get<T>(path: string): Promise<T> {
+    return apiFetch<T>(path);
+  },
+  post<T>(path: string, body: unknown): Promise<T> {
+    return apiFetch<T>(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  },
+};
 
 export async function getGraphNeighbors({
   nodeId,

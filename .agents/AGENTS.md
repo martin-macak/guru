@@ -98,6 +98,9 @@ make test-graph                 # graph plugin tests (requires Neo4j + GURU_REAL
 make build                      # build all 5 wheels into dist/
 make lint                       # check code style
 make fmt                        # auto-fix + format
+make dev                        # run guru-server-dev + guru-web dev together
+make dev-server                 # run guru-server-dev only (hot-reload, TCP-only)
+make dev-web                    # run guru-web Vite dev server (proxies to dev-server)
 ```
 
 ## Code Quality

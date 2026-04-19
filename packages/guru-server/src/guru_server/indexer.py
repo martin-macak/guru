@@ -21,6 +21,28 @@ from guru_server.storage import VectorStore
 logger = logging.getLogger(__name__)
 
 
+async def finalize_indexed_document(sync, document: dict) -> None:
+    """Mirror a successfully-indexed document into the graph via SyncService.
+
+    Accepts any object that satisfies the SyncService duck-type
+    (``graph_enabled() -> bool`` sync, ``upsert_one(doc)`` awaitable).
+    No-op when the graph is disabled or *sync* is None.
+    """
+    if sync is None or not sync.graph_enabled():
+        return
+    await sync.upsert_one(document)
+
+
+async def finalize_deleted_document(sync, doc_id: str) -> None:
+    """Mirror a deleted document removal into the graph via SyncService.
+
+    No-op when the graph is disabled or *sync* is None.
+    """
+    if sync is None or not sync.graph_enabled():
+        return
+    await sync.delete_one(doc_id)
+
+
 def _default_registry() -> ParserRegistry:
     reg = ParserRegistry()
     reg.register(MarkdownParser())
@@ -66,6 +88,7 @@ class BackgroundIndexer:
         embed_cache: EmbeddingCache | None = None,
         parser_registry: ParserRegistry | None = None,
         graph_client: GraphClient | None = None,
+        sync=None,
     ) -> None:
         self._store = store
         self._manifest = manifest
@@ -76,6 +99,7 @@ class BackgroundIndexer:
         self._cache = embed_cache
         self._kb_name = kb_name
         self._graph_client = graph_client
+        self._sync = sync
 
     async def run(self, job: Job) -> None:
         """Execute a two-phase indexing job."""
@@ -137,6 +161,7 @@ class BackgroundIndexer:
                             ),
                             feature="ingest_delete",
                         )
+                    await finalize_deleted_document(self._sync, rel_path)
 
             job.status = "completed"
             job.phase = None
@@ -268,6 +293,7 @@ class BackgroundIndexer:
                     ),
                     feature="ingest_delete",
                 )
+            await finalize_deleted_document(self._sync, rel_path)
             job.files_processed += 1
             return
 
@@ -295,6 +321,9 @@ class BackgroundIndexer:
                 self._graph_client.submit_parse_result(kb_name=self._kb_name, payload=payload),
                 feature="ingest_artifacts",
             )
+        await finalize_indexed_document(
+            self._sync, {"id": rel_path, "title": rel_path, "path": rel_path}
+        )
         logger.info("[job %s] Indexed %s (%d chunks)", short_id, rel_path, len(chunks))
 
     async def _embed_with_cache(

@@ -1,0 +1,182 @@
+"""LanceDB ↔ graph sync invariant enforcement.
+
+`SyncService` guarantees that for every document in LanceDB a corresponding
+document-kind graph node exists under its local KB whenever the graph daemon
+is enabled. The service is intentionally narrow: it knows nothing about HTTP,
+FastAPI, or ingestion pipelines; those wire it up.
+
+Design note — sync vs async:
+    The graph side (``GraphClient``) is async because the underlying transport
+    is HTTP-over-UDS. SyncService therefore exposes ``status``, ``reconcile``,
+    ``upsert_one`` and ``delete_one`` as ``async def`` so callers (startup
+    reconcile, FastAPI handlers, the BackgroundIndexer's ingest hook — all of
+    which already run in async contexts) can ``await`` them and the graph
+    I/O happens correctly. ``is_enabled`` / ``graph_enabled`` stay sync —
+    they are cheap presence checks with no I/O.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import UTC, datetime
+from typing import Protocol
+
+from guru_core.graph_types import SyncStatus
+
+logger = logging.getLogger(__name__)
+
+
+class LanceStore(Protocol):
+    def list_document_ids(self) -> list[str]: ...
+    def get_document(self, doc_id: str) -> dict: ...
+
+
+class GraphBackend(Protocol):
+    def is_enabled(self) -> bool: ...
+    async def list_document_node_ids(self, kb: str) -> list[str]: ...
+    async def upsert_document_node(self, kb: str, document: dict) -> None: ...
+    async def delete_document_node(self, kb: str, doc_id: str) -> None: ...
+
+
+class SyncService:
+    def __init__(self, *, kb: str, lance: LanceStore, graph: GraphBackend) -> None:
+        self._kb = kb
+        self._lance = lance
+        self._graph = graph
+        self._lock = asyncio.Lock()
+        self._last_reconciled_at: datetime | None = None
+
+    def graph_enabled(self) -> bool:
+        return self._graph.is_enabled()
+
+    async def status(self) -> SyncStatus:
+        lance_ids = set(self._lance.list_document_ids())
+        lancedb_count = len(lance_ids)
+
+        if not self._graph.is_enabled():
+            return SyncStatus(
+                lancedb_count=lancedb_count,
+                graph_count=0,
+                drift=lancedb_count,
+                last_reconciled_at=self._last_reconciled_at,
+                graph_enabled=False,
+            )
+
+        graph_ids = set(await self._graph.list_document_node_ids(self._kb))
+        drift = len(lance_ids.symmetric_difference(graph_ids))
+        return SyncStatus(
+            lancedb_count=lancedb_count,
+            graph_count=len(graph_ids),
+            drift=drift,
+            last_reconciled_at=self._last_reconciled_at,
+            graph_enabled=True,
+        )
+
+    async def upsert_one(self, document: dict) -> None:
+        if not self._graph.is_enabled():
+            return
+        async with self._lock:
+            await self._graph.upsert_document_node(self._kb, document)
+
+    async def delete_one(self, doc_id: str) -> None:
+        if not self._graph.is_enabled():
+            return
+        async with self._lock:
+            await self._graph.delete_document_node(self._kb, doc_id)
+
+    async def reconcile(self) -> SyncStatus:
+        if not self._graph.is_enabled():
+            raise RuntimeError("cannot reconcile: graph is disabled")
+
+        async with self._lock:
+            lance_ids = set(self._lance.list_document_ids())
+            graph_ids = set(await self._graph.list_document_node_ids(self._kb))
+
+            missing = sorted(lance_ids - graph_ids)
+            stale = sorted(graph_ids - lance_ids)
+
+            for doc_id in missing:
+                doc = self._lance.get_document(doc_id)
+                await self._graph.upsert_document_node(self._kb, doc)
+
+            for doc_id in stale:
+                await self._graph.delete_document_node(self._kb, doc_id)
+
+            self._last_reconciled_at = datetime.now(tz=UTC)
+            logger.info(
+                "sync.reconcile kb=%s upserts=%d deletes=%d",
+                self._kb,
+                len(missing),
+                len(stale),
+            )
+            return SyncStatus(
+                lancedb_count=len(lance_ids),
+                graph_count=len(lance_ids),
+                drift=0,
+                last_reconciled_at=self._last_reconciled_at,
+                graph_enabled=True,
+            )
+
+
+class LanceDocumentAdapter:
+    """Adapts the existing guru-server document store to the LanceStore protocol.
+
+    The store-side API exposes a richer row shape; this adapter collapses it
+    to the `(id, title, path)` triple that `SyncService` needs to mirror into
+    the graph.
+    """
+
+    def __init__(self, *, store) -> None:
+        self._store = store
+
+    def list_document_ids(self) -> list[str]:
+        return [row["file_path"] for row in self._store.list_documents()]
+
+    def get_document(self, doc_id: str) -> dict:
+        row = self._store.get_document(doc_id)
+        if row is None:
+            raise KeyError(doc_id)
+        frontmatter = row.get("frontmatter") or {}
+        title = frontmatter.get("title") or row["file_path"]
+        return {
+            "id": row["file_path"],
+            "title": title,
+            "path": row["file_path"],
+        }
+
+
+class GraphSyncAdapter:
+    """Adapts `GraphClient` (from guru-core) to the GraphBackend protocol.
+
+    Only document-kind nodes are visible through this adapter; parser-
+    extracted code nodes belong to other subsystems (MCP/CLI) and must not
+    be touched by SyncService.
+
+    All three CRUD methods on `GraphClient` are `async def` (they dispatch
+    HTTP requests over UDS). The adapter therefore matches that contract:
+    its I/O methods are `async def` and forward `await` to the client.
+    ``is_enabled`` stays sync — it's a cheap presence check, not I/O.
+    """
+
+    def __init__(self, *, client) -> None:
+        self._client = client
+
+    def is_enabled(self) -> bool:
+        # "Enabled" means a client is wired up. `build_graph_client_if_enabled`
+        # is the authoritative gate — it returns None when graph.enabled=false
+        # in config and a GraphClient instance otherwise. We intentionally do
+        # NOT probe the daemon here: this method is sync (startup reconcile,
+        # ingest hook) and the real GraphClient exposes reachability via the
+        # async `health()` coroutine, not a sync boolean.
+        return self._client is not None
+
+    async def list_document_node_ids(self, kb: str) -> list[str]:
+        nodes = await self._client.list_document_nodes(kb)
+        return [node["id"] for node in nodes]
+
+    async def upsert_document_node(self, kb: str, document: dict) -> None:
+        await self._client.upsert_document_node(kb, document)
+
+    async def delete_document_node(self, kb: str, doc_id: str) -> None:
+        await self._client.delete_document_node(kb, doc_id)

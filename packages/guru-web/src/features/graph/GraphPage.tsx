@@ -1,263 +1,103 @@
-import { useEffect, useMemo, useState } from "react";
-import ReactFlow, { Background, Controls, MiniMap } from "reactflow";
+import ReactFlow, { Background, Controls } from "reactflow";
 import "reactflow/dist/style.css";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
-import type { GraphArtifactNode, GraphDisabledPayload, GraphNeighborsPayload } from "../../lib/api/client";
-import { getGraphNeighbors, isGraphDisabled } from "../../lib/api/client";
+import { RightPane } from "../../app/layout/RightPane";
+import { apiClient } from "../../lib/api/client";
+import { runGraphQuery } from "../../lib/api/hooks";
 import { useWorkbench } from "../../lib/state/workbench";
-import { mapGraph } from "./mapGraph";
-
-function EmptyGraphState({
-  title,
-  body,
-}: {
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-[1.75rem] border border-dashed border-slate-300 bg-slate-50/70 p-6 text-sm text-slate-600">
-      <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">{title}</h3>
-      <p className="mt-2">{body}</p>
-    </div>
-  );
-}
+import { GraphMetaPane } from "./GraphMetaPane";
+import { QueryInput } from "./QueryInput";
+import { computePathToRoot } from "./computePathToRoot";
+import { useGraphCanvas } from "./useGraphCanvas";
+import { useGraphRoots } from "./useGraphRoots";
 
 export function GraphPage() {
-  const { boot, selection, selectArtifact, registerGraphEntities } = useWorkbench();
-  const [depth, setDepth] = useState(1);
-  const [graphState, setGraphState] = useState<{
-    status: "idle" | "loading" | "ready" | "error";
-    data: GraphNeighborsPayload | GraphDisabledPayload | null;
-  }>({
-    status: "idle",
-    data: null,
-  });
-  const focusArtifactId = selection.artifactId;
+  const setSurface = useWorkbench((s) => s.setSurface);
+  useEffect(() => setSurface("graph"), [setSurface]);
+
+  const roots = useGraphRoots();
+  const canvas = useGraphCanvas(roots.data);
+  const [params] = useSearchParams();
+  const focus = params.get("focus");
+  const [resultsMode, setResultsMode] = useState<{ prev: { nodes: any[]; edges: any[] } } | null>(null);
+  const [queryError, setQueryError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!focus || !roots.data) return;
+    (async () => {
+      const payload = await apiClient.get<any>(`/graph/neighbors/${encodeURIComponent(focus)}`);
+      canvas.mergeNeighbors(focus, payload);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, roots.data]);
 
-    if (!boot.graph.enabled || !focusArtifactId) {
-      setGraphState({ status: "idle", data: null });
-      return () => {
-        cancelled = true;
-      };
+  if (roots.isLoading) return <div className="flex-1 p-6 text-sm text-neutral-500">Loading graph…</div>;
+  if (roots.isError || !roots.data)
+    return <div className="flex-1 p-6 text-sm text-red-600">Graph unavailable.</div>;
+
+  const localKbName = roots.data.kbs[0]?.name ?? "local";
+  const overlayEdges = computePathToRoot(canvas.selectedId, localKbName).map((e) => ({
+    id: `overlay:${e.source}->${e.target}`,
+    source: e.source,
+    target: e.target,
+    style: { strokeDasharray: "6 4", stroke: "#a855f7" },
+    animated: true,
+  }));
+
+  async function onRunQuery(cypher: string) {
+    setQueryError(null);
+    const prev = { nodes: canvas.nodes, edges: canvas.edges };
+    try {
+      const result = await runGraphQuery(cypher);
+      canvas.replaceProjection(result);
+      setResultsMode({ prev });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Surface the server error message. The server returns "400" for write
+      // queries and the message contains the detail text.
+      const lower = msg.toLowerCase();
+      if (lower.includes("400")) {
+        setQueryError("writes are not permitted");
+      } else {
+        setQueryError(msg);
+      }
+      console.error(err);
     }
+  }
 
-    setGraphState({ status: "loading", data: null });
+  function onRestore() {
+    if (resultsMode?.prev) canvas.restore(resultsMode.prev);
+    setResultsMode(null);
+    setQueryError(null);
+  }
 
-    getGraphNeighbors({
-      nodeId: focusArtifactId,
-      depth,
-    })
-      .then((data) => {
-        if (!cancelled) {
-          setGraphState({ status: "ready", data });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setGraphState({ status: "error", data: null });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [boot.graph.enabled, depth, focusArtifactId]);
-
-  const mappedGraph = useMemo(() => {
-    const data = graphState.data;
-
-    if (!data || isGraphDisabled(data)) {
-      return null;
-    }
-
-    return mapGraph(data);
-  }, [graphState.data]);
-
-  const focusedNode = useMemo(() => {
-    const data = graphState.data;
-
-    if (!data || isGraphDisabled(data) || !focusArtifactId) {
-      return null;
-    }
-
-    return (
-      data.nodes.find((node) => node.id === focusArtifactId) ??
-      data.nodes.find((node) => node.id === data.node_id) ??
-      null
-    );
-  }, [focusArtifactId, graphState.data]);
-
-  useEffect(() => {
-    const data = graphState.data;
-
-    if (!data || isGraphDisabled(data)) {
-      return;
-    }
-
-    registerGraphEntities(data.nodes.map(mapNodeToEntity));
-  }, [graphState.data, registerGraphEntities]);
+  async function onNodeClick(_: unknown, node: { id: string }) {
+    canvas.setSelectedId(node.id);
+    if (node.id === "federation") return;
+    const payload = await apiClient.get<any>(`/graph/neighbors/${encodeURIComponent(node.id)}`);
+    canvas.mergeNeighbors(node.id, payload);
+  }
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h3 className="text-lg font-semibold tracking-[-0.03em] text-slate-950">
-            Artifact neighborhood
-          </h3>
-          <p className="mt-2 max-w-2xl text-sm text-slate-600">
-            React Flow renders a bounded neighborhood around the focused artifact. Selection
-            remains the source of truth.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-          <span className="font-medium text-slate-700">Neighborhood depth</span>
-          <button
-            className="rounded-full border border-slate-300 px-3 py-1 text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={depth <= 1}
-            onClick={() => setDepth((current) => Math.max(1, current - 1))}
-            type="button"
+    <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col">
+        <QueryInput onRun={onRunQuery} onRestore={onRestore} inResultsMode={!!resultsMode} error={queryError} />
+        <div className="flex flex-1">
+          <ReactFlow
+            nodes={canvas.nodes}
+            edges={[...canvas.edges, ...overlayEdges]}
+            onNodeClick={onNodeClick}
           >
-            -
-          </button>
-          <span className="w-6 text-center font-semibold text-slate-950">{depth}</span>
-          <button
-            className="rounded-full border border-slate-300 px-3 py-1 text-slate-700"
-            onClick={() => setDepth((current) => current + 1)}
-            type="button"
-          >
-            +
-          </button>
+            <Background />
+            <Controls />
+          </ReactFlow>
         </div>
       </div>
-
-      {!boot.graph.enabled ? (
-        <EmptyGraphState
-          body="Graph support is disabled for this project."
-          title="Graph unavailable"
-        />
-      ) : !focusArtifactId ? (
-        <EmptyGraphState
-          body="Select an artifact to explore its neighborhood."
-          title="Graph waiting for selection"
-        />
-      ) : graphState.status === "loading" ? (
-        <EmptyGraphState body="Loading the focused artifact neighborhood." title="Loading graph" />
-      ) : graphState.status === "error" ? (
-        <EmptyGraphState
-          body="The browser could not load the current graph neighborhood."
-          title="Graph request failed"
-        />
-      ) : graphState.data && isGraphDisabled(graphState.data) ? (
-        <EmptyGraphState
-          body="The graph daemon is unavailable right now."
-          title="Graph unavailable"
-        />
-      ) : mappedGraph && focusedNode ? (
-        <div className="space-y-4">
-          <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <article className="rounded-[1.75rem] border border-slate-200 bg-slate-50/80 p-4">
-              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
-                Focused node
-              </div>
-              <h4 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-950">
-                {focusedNode.label}
-              </h4>
-              <p className="mt-3 text-sm text-slate-600 break-all">{focusedNode.id}</p>
-              <dl className="mt-4 space-y-2 text-sm text-slate-700">
-                <div>
-                  <dt className="font-medium text-slate-950">Kind</dt>
-                  <dd>
-                    {typeof focusedNode.properties.kind === "string"
-                      ? focusedNode.properties.kind
-                      : "artifact"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="font-medium text-slate-950">Neighborhood</dt>
-                  <dd>
-                    {mappedGraph.nodes.length} nodes · {mappedGraph.edges.length} edges
-                  </dd>
-                </div>
-              </dl>
-            </article>
-
-            <div
-              aria-label="graph-canvas"
-              className="h-[480px] overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white"
-            >
-              <ReactFlow
-                edges={mappedGraph.edges}
-                fitView
-                nodes={mappedGraph.nodes}
-                onNodeClick={(_event, node) => selectArtifact(node.id)}
-              >
-                <MiniMap pannable zoomable />
-                <Controls showInteractive={false} />
-                <Background color="#cbd5e1" gap={20} />
-              </ReactFlow>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <EmptyGraphState
-          body="No graph neighborhood was returned for the current selection."
-          title="No graph data"
-        />
-      )}
-    </section>
+      <RightPane>
+        <GraphMetaPane selectedId={canvas.selectedId} />
+      </RightPane>
+    </div>
   );
-}
-
-function mapNodeToEntity(node: GraphArtifactNode) {
-  return {
-    id: node.id,
-    kind: "artifact" as const,
-    title: node.label,
-    location: readNodeLocation(node),
-    summary: readNodeSummary(node),
-  };
-}
-
-function readNodeLocation(node: GraphArtifactNode) {
-  const candidates = [
-    node.properties.location,
-    node.properties.path,
-    node.properties.rel_path,
-    node.properties.file_path,
-    node.properties.qualname,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.length) {
-      return candidate;
-    }
-  }
-
-  return node.id;
-}
-
-function readNodeSummary(node: GraphArtifactNode) {
-  const summary = node.properties.summary;
-
-  if (typeof summary === "string" && summary.length) {
-    return summary;
-  }
-
-  const description = node.properties.description;
-
-  if (typeof description === "string" && description.length) {
-    return description;
-  }
-
-  const kind = node.properties.kind;
-
-  if (typeof kind === "string" && kind.length) {
-    return `Artifact kind: ${kind}.`;
-  }
-
-  return `Artifact ${node.label}.`;
 }

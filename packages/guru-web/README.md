@@ -70,3 +70,14 @@ installed `guru-server` package can serve the bundled browser app by default.
 ```bash
 npm run preview
 ```
+
+## Dev mode
+
+`npm run dev` (or `make dev-web` from the repo root) starts Vite on
+`127.0.0.1:5173` and proxies API prefixes (`/web`, `/graph`, `/documents`,
+`/search`, `/status`, `/jobs`, `/index`, `/cache`, `/sync`) to
+`127.0.0.1:$GURU_DEV_PORT` (default `8765`). Start the dev server side
+with `make dev-server` or run both together with `make dev`.
+
+When a new top-level API router prefix is added to guru-server, extend
+`SERVER_PREFIXES` in `vite.config.ts`.

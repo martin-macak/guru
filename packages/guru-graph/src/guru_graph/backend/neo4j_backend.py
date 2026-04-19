@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from neo4j import GraphDatabase
+from neo4j.graph import Node as _Neo4jNode
+from neo4j.graph import Path as _Neo4jPath
+from neo4j.graph import Relationship as _Neo4jRelationship
+from neo4j.spatial import Point
+from neo4j.time import Date, DateTime, Duration, Time
 
 from ..neo4j_process import Neo4jRuntime, start_neo4j, stop_neo4j
 from ..versioning import check_migration_target
@@ -32,6 +37,48 @@ _LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 def _cypher_identifier(value: str) -> str:
     if not _LABEL_RE.match(value):
         raise ValueError(f"invalid graph identifier: {value!r}")
+    return value
+
+
+def _coerce_value(value: Any) -> Any:
+    """Convert Neo4j driver types into JSON-serializable Python values.
+
+    Cypher results can contain Node/Relationship/Path and spatial/temporal
+    types that FastAPI's default encoder can't handle. Collapse them to
+    plain dicts/lists/primitives so `/query` can return them verbatim.
+    """
+    if isinstance(value, _Neo4jNode):
+        return {
+            "_type": "node",
+            "id": value.element_id,
+            "labels": sorted(value.labels),
+            "properties": {k: _coerce_value(v) for k, v in dict(value).items()},
+        }
+    if isinstance(value, _Neo4jRelationship):
+        return {
+            "_type": "relationship",
+            "id": value.element_id,
+            "type": value.type,
+            "start": value.start_node.element_id if value.start_node else None,
+            "end": value.end_node.element_id if value.end_node else None,
+            "properties": {k: _coerce_value(v) for k, v in dict(value).items()},
+        }
+    if isinstance(value, _Neo4jPath):
+        return {
+            "_type": "path",
+            "nodes": [_coerce_value(n) for n in value.nodes],
+            "relationships": [_coerce_value(r) for r in value.relationships],
+        }
+    if isinstance(value, Point):
+        return {"_type": "point", "srid": value.srid, "coordinates": list(value)}
+    if isinstance(value, Date | DateTime | Time | Duration):
+        return value.iso_format()
+    if isinstance(value, list | tuple):
+        return [_coerce_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _coerce_value(v) for k, v in value.items()}
+    if isinstance(value, bytes | bytearray):
+        return value.hex()
     return value
 
 
@@ -59,7 +106,7 @@ class _Neo4jTx(Tx):
         start = time.monotonic()
         res = self._neo4j_tx.run(cypher, parameters=params)
         columns = list(res.keys())
-        rows = [list(r.values()) for r in res]
+        rows = [[_coerce_value(v) for v in r.values()] for r in res]
         elapsed_ms = (time.monotonic() - start) * 1000
         return CypherResult(columns=columns, rows=rows, elapsed_ms=elapsed_ms)
 
@@ -153,7 +200,7 @@ class Neo4jBackend:
         with self._driver.session() as s:
             res = s.run(cypher, parameters=params)
             columns = list(res.keys())
-            rows = [list(r.values()) for r in res]
+            rows = [[_coerce_value(v) for v in r.values()] for r in res]
         elapsed_ms = (time.monotonic() - start) * 1000
         return CypherResult(columns=columns, rows=rows, elapsed_ms=elapsed_ms)
 
@@ -164,7 +211,7 @@ class Neo4jBackend:
 
             def _work(tx):
                 res = tx.run(cypher, parameters=params)
-                return list(res.keys()), [list(r.values()) for r in res]
+                return list(res.keys()), [[_coerce_value(v) for v in r.values()] for r in res]
 
             columns, rows = s.execute_read(_work)
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -276,6 +323,40 @@ class Neo4jBackend:
                 }
                 for r in rs
             ]
+
+    # ---- Document node CRUD (sync layer) ----
+    def list_document_nodes(self, kb: str) -> list[dict[str, Any]]:
+        with self._driver.session() as s:
+            rs = s.run(
+                "MATCH (d:Document {kb: $kb}) RETURN d.id AS id, d.title AS title, d.path AS path",
+                parameters={"kb": kb},
+            )
+            return [{"id": r["id"], "title": r["title"], "path": r["path"]} for r in rs]
+
+    def upsert_document_node(self, kb: str, document: dict[str, Any]) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (k:Kb {name: $kb})
+                MERGE (d:Document {id: $id, kb: $kb})
+                  ON CREATE SET d.created_at = timestamp()
+                SET d.title = $title, d.path = $path, d.updated_at = timestamp()
+                MERGE (k)-[:CONTAINS]->(d)
+                """,
+                parameters={
+                    "kb": kb,
+                    "id": document["id"],
+                    "title": document.get("title", ""),
+                    "path": document.get("path", ""),
+                },
+            )
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (d:Document {id: $id, kb: $kb}) DETACH DELETE d",
+                parameters={"id": doc_id, "kb": kb},
+            )
 
     def upsert_artifact_edge(
         self,

@@ -134,3 +134,13 @@ See `docs/superpowers/specs/2026-04-18-artifact-graph-knowledge-base-design.md`
 for the full subsystem design and
 `docs/superpowers/plans/2026-04-18-artifact-graph-knowledge-base.md` for the
 shipped implementation plan.
+
+## Web UI invariants
+
+- The web UI never surfaces non-document graph nodes. All graph payloads
+  consumed by `guru-web` are filtered server-side to document-kind nodes.
+- LanceDB is the authoritative source of document identity. The graph stores
+  document-kind nodes only as a mirror. Sync conflicts are resolved in
+  LanceDB's favor.
+- The federation root is UI-only. It is never stored in the graph and must
+  not appear in graph query results.

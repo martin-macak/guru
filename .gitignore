@@ -9,4 +9,7 @@ build/
 packages/guru-web/dist/
 packages/guru-web/node_modules/
 
+.serena/
+.superpowers/
+.claude/scheduled_tasks.lock
 .claude/worktrees/

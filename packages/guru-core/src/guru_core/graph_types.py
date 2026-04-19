@@ -321,3 +321,59 @@ class ArtifactFindQuery(BaseModel):
     tag: str | None = None
     kb_name: str | None = None
     limit: int = 50
+
+
+# ---------------------------------------------------------------------------
+# Web UI / sync types
+# ---------------------------------------------------------------------------
+
+
+class SyncStatus(BaseModel):
+    """LanceDB ↔ graph sync health.
+
+    `drift` is the count of documents present in one store but not the
+    other. When graph is disabled, drift is reported as the count of
+    LanceDB documents (nothing to mirror against).
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    lancedb_count: int = Field(ge=0)
+    graph_count: int = Field(ge=0)
+    drift: int = Field(ge=0)
+    last_reconciled_at: datetime | None
+    graph_enabled: bool
+
+
+class DocumentSearchHit(BaseModel):
+    """A single similarity-search result surfaced to the web UI."""
+
+    model_config = ConfigDict(frozen=True)
+
+    path: str
+    title: str
+    excerpt: str
+    score: float
+
+
+class FederationRootNode(BaseModel):
+    """Synthetic UI-only orientation root for the graph canvas.
+
+    The server sends this down in `GET /graph/roots` so clients share one
+    shape. It is NEVER stored in the graph and is excluded from
+    `POST /graph/query` results.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: Literal["federation"] = "federation"
+    label: str = "Federation"
+
+
+class GraphRootsPayload(BaseModel):
+    """Initial canvas payload — federation root + all KB nodes."""
+
+    model_config = ConfigDict(frozen=True)
+
+    federation_root: FederationRootNode
+    kbs: list[KbNode]

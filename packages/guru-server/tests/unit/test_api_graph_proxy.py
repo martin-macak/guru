@@ -158,8 +158,10 @@ def test_annotations_create_returns_graph_disabled_when_no_client():
 def test_query_returns_graph_disabled_when_no_client():
     tc = _build_app(None)
     resp = tc.post("/graph/query", json={"cypher": "RETURN 1", "params": {}})
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "graph_disabled"
+    # Task 2.4: /graph/query now returns 410 when the graph is disabled,
+    # per the standardised {nodes, edges} contract (distinct from the
+    # other proxy routes which still degrade silently).
+    assert resp.status_code == 410
 
 
 # --- describe ---
@@ -420,14 +422,22 @@ def test_reattach_orphan_forwards_new_node_id():
 
 def test_query_forces_read_only_true_regardless_of_body():
     client = _make_client()
-    client.graph_query.return_value = QueryResult(columns=["x"], rows=[[1]], elapsed_ms=0.5)
+    # Task 2.4: response is now {nodes, edges}. The rows carry node-shaped
+    # dicts which the handler transforms.
+    client.graph_query.return_value = QueryResult(
+        columns=["n"],
+        rows=[[{"id": "doc:a.md", "label": "a.md", "kind": "document", "kb": "kb1"}]],
+        elapsed_ms=0.5,
+    )
     tc = _build_app(client)
     resp = tc.post(
         "/graph/query",
         json={"cypher": "MATCH (n) RETURN n", "params": {}, "read_only": False},
     )
     assert resp.status_code == 200
-    assert resp.json()["columns"] == ["x"]
+    body = resp.json()
+    assert set(body.keys()) == {"nodes", "edges"}
+    assert body["nodes"] == [{"id": "doc:a.md", "label": "a.md", "kind": "document", "kb": "kb1"}]
     # The proxy must call graph_query (which itself enforces read_only=True
     # internally) - and it must NOT forward a read_only kwarg.
     assert client.graph_query.await_count == 1
@@ -563,8 +573,10 @@ def test_query_swallows_graph_unavailable():
     client.graph_query.side_effect = GraphUnavailable("simulated")
     tc = _build_app(client)
     resp = tc.post("/graph/query", json={"cypher": "RETURN 1", "params": {}})
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "graph_disabled"
+    # Task 2.4: /graph/query now surfaces 410 on GraphUnavailable rather
+    # than the silent 200+graph_disabled contract the other proxy routes use,
+    # to match the standardised {nodes, edges} contract.
+    assert resp.status_code == 410
 
 
 # --- create_link author-header precedence ---

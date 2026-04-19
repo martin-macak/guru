@@ -16,9 +16,10 @@ also uses this proxy for its read-only commands.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from guru_core.graph_client import GraphClient
@@ -29,10 +30,21 @@ from guru_core.graph_types import (
     ArtifactLinkCreate,
     ArtifactUnlink,
     CypherQuery,
+    FederationRootNode,
+    GraphRootsPayload,
+    QueryResult,
     ReattachRequest,
 )
 
+from .models import GraphEdgeOut, GraphNodeOut, GraphQueryResult
+
+_WRITE_RE = re.compile(r"\b(create|merge|delete|set|remove|detach)\b", re.IGNORECASE)
+
+_FEDERATION_ID = "federation"
+
 router = APIRouter(prefix="/graph")
+
+_WEB_ALLOWED_KINDS = {"document", "kb"}
 
 
 def _graph_disabled_body() -> dict:
@@ -93,7 +105,50 @@ async def proxy_neighbors(
         )
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
-    return JSONResponse(result.model_dump(mode="json"))
+    payload = result.model_dump(mode="json")
+
+    # The `kind` field may appear either at the top level of a node (e.g. a
+    # GraphNodeOut) or nested inside `properties` (e.g. a serialised
+    # ArtifactNode). Accept either location so both code paths work.
+    def _node_kind(n: dict) -> str | None:
+        top_kind = n.get("kind")
+        if top_kind is not None:
+            return top_kind
+        return (n.get("properties") or {}).get("kind")
+
+    # Transform ArtifactNode-shaped dicts into the web-UI-expected format:
+    # { id, label, kind, kb? }. The web canvas hook (useGraphCanvas) reads
+    # n.id / n.label / n.kind / n.kb — not n.properties.kind.
+    def _to_web_node(n: dict) -> dict:
+        kind = _node_kind(n)
+        props = n.get("properties") or {}
+        return {
+            "id": n["id"],
+            "label": n.get("label", n["id"]),
+            "kind": kind or "unknown",
+            "kb": props.get("kb_name") or props.get("kb"),
+        }
+
+    # Transform edges: ArtifactNeighborsResult uses from_id/to_id; the web
+    # canvas hook expects source/target.
+    def _to_web_edge(e: dict) -> dict:
+        return {
+            "source": e.get("from_id", e.get("source", "")),
+            "target": e.get("to_id", e.get("target", "")),
+            "kind": e.get("kind") or e.get("rel_type") or "",
+        }
+
+    raw_nodes = payload.get("nodes", [])
+    filtered_nodes = [_to_web_node(n) for n in raw_nodes if _node_kind(n) in _WEB_ALLOWED_KINDS]
+    kept_ids = {n["id"] for n in filtered_nodes}
+    raw_edges = payload.get("edges", [])
+    web_edges = [
+        _to_web_edge(e)
+        for e in raw_edges
+        if (e.get("from_id") or e.get("source")) in kept_ids
+        and (e.get("to_id") or e.get("target")) in kept_ids
+    ]
+    return JSONResponse({"nodes": filtered_nodes, "edges": web_edges})
 
 
 @router.post("/find")
@@ -204,13 +259,69 @@ async def proxy_reattach_orphan(
     return JSONResponse(ann.model_dump(mode="json"))
 
 
-@router.post("/query")
-async def proxy_query(body: CypherQuery, request: Request) -> JSONResponse:
+def _extract_nodes_edges(
+    raw: QueryResult,
+) -> tuple[dict[str, GraphNodeOut], list[GraphEdgeOut]]:
+    """Extract nodes and edges from a QueryResult.
+
+    ``raw`` is a QueryResult whose rows are ``list[list[Any]]``. Each cell
+    may be a dict representing a node (has ``id`` key) or an edge (has
+    ``source`` and ``target`` keys), or a scalar (ignored).
+
+    Nodes are deduplicated by id. The federation root is filtered out.
+    """
+    nodes: dict[str, GraphNodeOut] = {}
+    edges: list[GraphEdgeOut] = []
+    for row in raw.rows:
+        for cell in row:
+            if not isinstance(cell, dict):
+                continue
+            if "source" in cell and "target" in cell and "kind" in cell:
+                # Edge-shaped cell
+                edges.append(
+                    GraphEdgeOut(source=cell["source"], target=cell["target"], kind=cell["kind"])
+                )
+            elif "id" in cell:
+                # Node-shaped cell
+                node_id = cell["id"]
+                if node_id == _FEDERATION_ID:
+                    continue
+                if node_id not in nodes:
+                    nodes[node_id] = GraphNodeOut(
+                        id=node_id,
+                        label=cell.get("label", node_id),
+                        kind=cell.get("kind", "unknown"),
+                        kb=cell.get("kb"),
+                    )
+    return nodes, edges
+
+
+@router.post("/query", response_model=GraphQueryResult)
+async def proxy_query(body: CypherQuery, request: Request) -> GraphQueryResult:
+    if _WRITE_RE.search(body.cypher):
+        raise HTTPException(status_code=400, detail="writes are not permitted")
     client = _client_or_none(request)
     if client is None:
-        return JSONResponse(_graph_disabled_body())
+        raise HTTPException(status_code=410, detail="graph is disabled")
     try:
         result = await client.graph_query(cypher=body.cypher, params=body.params)
-    except GraphUnavailable:
-        return JSONResponse(_graph_disabled_body())
-    return JSONResponse(result.model_dump(mode="json"))
+    except GraphUnavailable as exc:
+        raise HTTPException(status_code=410, detail="graph is disabled") from exc
+    nodes, edges = _extract_nodes_edges(result)
+    return GraphQueryResult(nodes=list(nodes.values()), edges=edges)
+
+
+@router.get("/roots", response_model=GraphRootsPayload)
+async def graph_roots(request: Request) -> GraphRootsPayload:
+    client = _client_or_none(request)
+    if client is None:
+        raise HTTPException(status_code=410, detail="graph is disabled")
+
+    project_name = getattr(request.app.state, "project_name", None)
+    try:
+        local_kb = await client.get_kb(project_name) if project_name else None
+    except GraphUnavailable as exc:
+        raise HTTPException(status_code=410, detail="graph is disabled") from exc
+
+    kbs = [local_kb] if local_kb is not None else []
+    return GraphRootsPayload(federation_root=FederationRootNode(), kbs=kbs)

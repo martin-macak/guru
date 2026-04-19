@@ -71,6 +71,8 @@ class FakeBackend:
     _artifacts: dict[str, _FakeArtifact] = field(default_factory=dict)
     _edges: list[_FakeEdge] = field(default_factory=list)
     _annotations: dict[str, _FakeAnnotation] = field(default_factory=dict)
+    # Keyed by (kb, doc_id)
+    _document_nodes: dict[tuple[str, str], dict[str, Any]] = field(default_factory=dict)
     _started: bool = False
     _schema_version: int = 0
 
@@ -614,6 +616,21 @@ class FakeBackend:
         ann.target_label = target.label
         ann.updated_at = time.time()
         return True
+
+    # ---- Document node CRUD (sync layer) ----
+    def list_document_nodes(self, kb: str) -> list[dict[str, Any]]:
+        return [copy.deepcopy(doc) for (k, _), doc in self._document_nodes.items() if k == kb]
+
+    def upsert_document_node(self, kb: str, document: dict[str, Any]) -> None:
+        key = (kb, document["id"])
+        self._document_nodes[key] = {
+            "id": document["id"],
+            "title": document.get("title", ""),
+            "path": document.get("path", ""),
+        }
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None:
+        self._document_nodes.pop((kb, doc_id), None)
 
 
 def _annotation_to_dict(ann: _FakeAnnotation) -> dict[str, Any]:

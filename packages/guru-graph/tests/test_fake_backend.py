@@ -95,3 +95,38 @@ def test_registry_registration():
     GraphBackendRegistry.register("fake", FakeBackend)
     assert "fake" in GraphBackendRegistry.names()
     assert GraphBackendRegistry.get("fake") is FakeBackend
+
+
+# ---- Document node CRUD ----
+
+
+@pytest.fixture
+def fake_backend_with_kb(backend: FakeBackend) -> FakeBackend:
+    backend.upsert_kb(name="local", project_root="/tmp/local", tags=[], metadata_json="{}")
+    return backend
+
+
+def test_document_node_upsert_and_list(fake_backend_with_kb: FakeBackend):
+    fake_backend_with_kb.upsert_document_node(
+        kb="local", document={"id": "a.md", "title": "A", "path": "a.md"}
+    )
+    nodes = fake_backend_with_kb.list_document_nodes("local")
+    assert len(nodes) == 1
+    assert nodes[0]["id"] == "a.md"
+
+
+def test_document_node_delete(fake_backend_with_kb: FakeBackend):
+    fake_backend_with_kb.upsert_document_node(
+        kb="local", document={"id": "a.md", "title": "A", "path": "a.md"}
+    )
+    fake_backend_with_kb.delete_document_node(kb="local", doc_id="a.md")
+    assert fake_backend_with_kb.list_document_nodes("local") == []
+
+
+def test_document_node_upsert_is_idempotent(fake_backend_with_kb: FakeBackend):
+    doc = {"id": "a.md", "title": "A", "path": "a.md"}
+    fake_backend_with_kb.upsert_document_node(kb="local", document=doc)
+    fake_backend_with_kb.upsert_document_node(kb="local", document={**doc, "title": "A2"})
+    nodes = fake_backend_with_kb.list_document_nodes("local")
+    assert len(nodes) == 1
+    assert nodes[0]["title"] == "A2"

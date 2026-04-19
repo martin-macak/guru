@@ -1,25 +1,14 @@
-export const workbenchSurfaces = ["investigate", "graph", "query", "operate"] as const;
-
+export const workbenchSurfaces = ["documents", "graph", "status"] as const;
 export type WorkbenchSurface = (typeof workbenchSurfaces)[number];
 
-export const surfaceLabels: Record<WorkbenchSurface, string> = {
-  investigate: "Investigate",
-  graph: "Graph",
-  query: "Query",
-  operate: "Operate",
+export const surfaceToPath: Record<WorkbenchSurface, string> = {
+  documents: "/documents",
+  graph: "/graph",
+  status: "/status",
 };
 
-export function surfaceToPath(surface: WorkbenchSurface): string {
-  return `/${surface}`;
-}
-
-export function surfaceFromPathname(pathname: string): WorkbenchSurface {
-  const normalized = pathname.replace(/\/+$/, "") || "/";
-
-  if (normalized === "/") {
-    return "investigate";
-  }
-
-  const candidate = normalized.slice(1) as WorkbenchSurface;
-  return workbenchSurfaces.includes(candidate) ? candidate : "investigate";
-}
+export const surfaceLabels: Record<WorkbenchSurface, string> = {
+  documents: "Documents",
+  graph: "Graph",
+  status: "Status",
+};
