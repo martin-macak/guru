@@ -8,3 +8,5 @@ build/
 .worktrees/
 packages/guru-web/dist/
 packages/guru-web/node_modules/
+
+.claude/worktrees/
