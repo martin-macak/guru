@@ -3,9 +3,11 @@ import "reactflow/dist/style.css";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { RightPane } from "../../app/layout/RightPane";
 import { apiClient } from "../../lib/api/client";
 import { runGraphQuery } from "../../lib/api/hooks";
 import { useWorkbench } from "../../lib/state/workbench";
+import { GraphMetaPane } from "./GraphMetaPane";
 import { QueryInput } from "./QueryInput";
 import { computePathToRoot } from "./computePathToRoot";
 import { useGraphCanvas } from "./useGraphCanvas";
@@ -82,6 +84,9 @@ export function GraphPage() {
           </ReactFlow>
         </div>
       </div>
+      <RightPane>
+        <GraphMetaPane selectedId={canvas.selectedId} />
+      </RightPane>
     </div>
   );
 }
