@@ -111,6 +111,36 @@ make dev-web                    # run guru-web Vite dev server (proxies to dev-s
 - pre-commit hooks run ruff on every commit. Run `make format` before committing.
 - Ruff rules: E, W, F, I, UP, B, SIM, RUF. Line length 99.
 
+## GitHub Issues
+
+When asked to track a bug, file a defect, or create an enhancement issue, agents
+**MUST** comply with the project's issue-creation rules:
+
+1. **Always use the correct template.** Blank issues are disabled. Two templates exist:
+   - **Bug Report** (`bug_report`) — for unexpected behaviour, crashes, or wrong output.
+   - **Enhancement** (`enhancement`) — for new features or improvements.
+
+2. **Required fields for Bug Reports:**
+   - `version` — the Guru version where the bug was observed. Must be a semver string
+     (e.g. `0.3.1`, `1.0.0`, `2.1.0-alpha.1`). Obtain with `uv run guru --version` or
+     `dunamai from git`. This field is mandatory; do not leave it blank or use "unknown".
+   - `component` — select the affected package from the dropdown
+     (`guru-server`, `guru-mcp`, `guru-cli / TUI`, `guru-core`, `guru-graph`, `Other / Unknown`).
+   - `description`, `steps`, `expected`, `actual` — all required.
+
+3. **Required fields for Enhancements:**
+   - `component` — which package/area the enhancement targets.
+   - `problem` — the motivation or pain point.
+   - `solution` — the proposed change.
+
+4. **Title format** — follow the project naming convention: `<type>: <description>`.
+   - Bug issues: `fix: <short description>` (e.g. `fix: search returns empty after re-index`)
+   - Enhancement issues: `feat: <short description>` (e.g. `feat: add PDF ingestion support`)
+
+5. When creating issues via the GitHub API or CLI, supply all required fields explicitly.
+   Do not skip or omit required fields. If a required field value is genuinely unknown,
+   state that in the field rather than leaving it empty.
+
 ## Naming Conventions
 
 Always follow naming conventions for GitHub PRs, Issues, and git branches:
