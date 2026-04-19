@@ -149,9 +149,13 @@ class GraphSyncAdapter:
         self._client = client
 
     def is_enabled(self) -> bool:
-        if self._client is None:
-            return False
-        return bool(self._client.is_available())
+        # "Enabled" means a client is wired up. `build_graph_client_if_enabled`
+        # is the authoritative gate — it returns None when graph.enabled=false
+        # in config and a GraphClient instance otherwise. We intentionally do
+        # NOT probe the daemon here: this method is sync (startup reconcile,
+        # ingest hook) and the real GraphClient exposes reachability via the
+        # async `health()` coroutine, not a sync boolean.
+        return self._client is not None
 
     def list_document_node_ids(self, kb: str) -> list[str]:
         return [node["id"] for node in self._client.list_document_nodes(kb)]

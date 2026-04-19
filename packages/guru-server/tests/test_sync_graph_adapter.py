@@ -25,10 +25,10 @@ class FakeGraphClient:
         self.deletes.append((kb, doc_id))
 
 
-def test_adapter_passes_through_enable_flag():
-    client = FakeGraphClient(enabled=False)
+def test_adapter_is_enabled_when_client_present():
+    client = FakeGraphClient(enabled=True)
     adapter = GraphSyncAdapter(client=client)
-    assert adapter.is_enabled() is False
+    assert adapter.is_enabled() is True
 
 
 def test_adapter_lists_document_node_ids():
@@ -44,3 +44,40 @@ def test_adapter_upsert_and_delete_forward_to_client():
     adapter.delete_document_node("local", "a.md")
     assert client.upserts == [("local", "a.md")]
     assert client.deletes == [("local", "a.md")]
+
+
+class RealishGraphClient:
+    """Mirrors the public surface of `guru_core.graph_client.GraphClient`.
+
+    The real client does NOT define `is_available()` — the adapter must not
+    depend on that method. This fake carries the doc-node CRUD methods the
+    adapter actually needs (and nothing else) so a bad adapter implementation
+    that calls a non-existent method on the client will blow up here with
+    AttributeError, exactly like it does against the real GraphClient in dev.
+    """
+
+    def list_document_nodes(self, kb):  # matches real GraphClient signature
+        return []
+
+    def upsert_document_node(self, kb, document):
+        pass
+
+    def delete_document_node(self, kb, doc_id):
+        pass
+
+
+def test_adapter_is_enabled_does_not_rely_on_is_available_method():
+    """Regression guard: the real GraphClient has no is_available() method.
+
+    Before the fix, `is_enabled()` called `self._client.is_available()`,
+    which raised AttributeError whenever a real GraphClient was wired in
+    (crashing startup reconcile, /sync/status, and the ingest hook).
+    """
+    client = RealishGraphClient()
+    adapter = GraphSyncAdapter(client=client)
+    assert adapter.is_enabled() is True  # client is not None → adapter is enabled
+
+
+def test_adapter_is_enabled_returns_false_when_client_is_none():
+    adapter = GraphSyncAdapter(client=None)
+    assert adapter.is_enabled() is False
