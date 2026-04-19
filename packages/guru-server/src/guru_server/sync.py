@@ -114,3 +114,27 @@ class LanceDocumentAdapter:
         if row is None:
             raise KeyError(doc_id)
         return {"id": row["path"], "title": row["title"], "path": row["path"]}
+
+
+class GraphSyncAdapter:
+    """Adapts `GraphClient` (from guru-core) to the GraphBackend protocol.
+
+    Only document-kind nodes are visible through this adapter; parser-
+    extracted code nodes belong to other subsystems (MCP/CLI) and must not
+    be touched by SyncService.
+    """
+
+    def __init__(self, *, client) -> None:
+        self._client = client
+
+    def is_enabled(self) -> bool:
+        return bool(self._client.is_available())
+
+    def list_document_node_ids(self, kb: str) -> list[str]:
+        return [node["id"] for node in self._client.list_document_nodes(kb)]
+
+    def upsert_document_node(self, kb: str, document: dict) -> None:
+        self._client.upsert_document_node(kb, document)
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None:
+        self._client.delete_document_node(kb, doc_id)
