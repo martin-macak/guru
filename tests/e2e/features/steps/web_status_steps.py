@@ -51,7 +51,8 @@ class _FakeGraphBackendForWeb:
     """In-process fake graph backend for web status BDD scenarios.
 
     Stores document node IDs in memory; supports prune() to simulate
-    graph store wipe. The reconcile path upserts/deletes nodes here.
+    graph store wipe. Mirrors the real GraphBackend Protocol: ``is_enabled``
+    sync, CRUD methods async.
     """
 
     def __init__(self, *, enabled: bool = True) -> None:
@@ -61,14 +62,19 @@ class _FakeGraphBackendForWeb:
     def is_enabled(self) -> bool:
         return self._enabled
 
-    def list_document_node_ids(self, kb: str) -> list[str]:
+    async def list_document_node_ids(self, kb: str) -> list[str]:
         return list(self._nodes)
 
-    def upsert_document_node(self, kb: str, document: dict) -> None:
+    async def upsert_document_node(self, kb: str, document: dict) -> None:
         self._nodes[document["id"]] = dict(document)
 
-    def delete_document_node(self, kb: str, doc_id: str) -> None:
+    async def delete_document_node(self, kb: str, doc_id: str) -> None:
         self._nodes.pop(doc_id, None)
+
+    # Sync fixture helpers — usable from behave steps that run inside an
+    # already-active event loop (asyncio.run would raise there).
+    def seed_sync(self, document: dict) -> None:
+        self._nodes[document["id"]] = dict(document)
 
     def prune(self) -> None:
         """Clear all document nodes — simulates graph store wipe."""
@@ -91,10 +97,13 @@ def _inject_sync_service(context, *, graph_enabled: bool) -> _FakeGraphBackendFo
 
     # If graph is enabled, pre-seed the graph backend with all currently
     # indexed documents so the initial drift is 0 (everything in sync).
+    # Use the sync seed helper because this runs from a behave step that
+    # may be inside an already-running event loop (web scenarios hold an
+    # active uvicorn loop for the TCP listener).
     if graph_enabled:
         for doc_id in lance_adapter.list_document_ids():
             doc = lance_adapter.get_document(doc_id)
-            graph_backend.upsert_document_node(kb, doc)
+            graph_backend.seed_sync(doc)
 
     app.state.sync = sync
     app.state.graph_enabled = graph_enabled

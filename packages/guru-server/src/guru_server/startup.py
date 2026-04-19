@@ -77,11 +77,15 @@ def stop_ollama_serve(proc: subprocess.Popen | None) -> None:
         proc.kill()
 
 
-def run_startup_reconcile(sync) -> None:
-    """Run a best-effort reconcile on server boot when there's drift."""
+async def run_startup_reconcile(sync) -> None:
+    """Run a best-effort reconcile on server boot when there's drift.
+
+    Async because ``SyncService.status`` / ``reconcile`` are async (they
+    issue HTTP/UDS calls to the graph daemon via GraphClient).
+    """
     from guru_server.sync import SyncService  # noqa: F401 — kept for type-checking context
 
-    status = sync.status()
+    status = await sync.status()
     if not status.graph_enabled:
         logger.info("startup.reconcile skipped: graph disabled")
         return
@@ -93,5 +97,5 @@ def run_startup_reconcile(sync) -> None:
         )
         return
     logger.warning("startup.reconcile begin: drift=%d", status.drift)
-    sync.reconcile()
+    await sync.reconcile()
     logger.info("startup.reconcile complete")

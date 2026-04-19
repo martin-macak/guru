@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
 
     # Best-effort reconcile: ensure LanceDB ↔ graph are in sync on boot.
     try:
-        run_startup_reconcile(app.state.sync)
+        await run_startup_reconcile(app.state.sync)
     except Exception:
         logger.exception("startup reconcile raised unexpectedly — continuing")
 

@@ -3,9 +3,15 @@
 Uses pure in-process fakes (no real Neo4j, no live server) — every scenario
 runs in the default CI suite. The harness is assembled fresh in each
 Background / Scenario so scenarios are fully isolated.
+
+SyncService's I/O methods are async. behave steps are sync, so we drive
+each async call through ``asyncio.run``. The in-process `_FakeGraphBackend`
+mirrors the real async contract: ``is_enabled`` sync, CRUD methods async.
 """
 
 from __future__ import annotations
+
+import asyncio
 
 from behave import given, then, when
 
@@ -46,14 +52,18 @@ class _FakeGraphBackend:
     def set_enabled(self, enabled: bool) -> None:
         self._enabled = enabled
 
-    def list_document_node_ids(self, kb: str) -> list[str]:
+    async def list_document_node_ids(self, kb: str) -> list[str]:
         return list(self._nodes)
 
-    def upsert_document_node(self, kb: str, document: dict) -> None:
+    async def upsert_document_node(self, kb: str, document: dict) -> None:
         self._nodes[document["id"]] = dict(document)
 
-    def delete_document_node(self, kb: str, doc_id: str) -> None:
+    async def delete_document_node(self, kb: str, doc_id: str) -> None:
         self._nodes.pop(doc_id, None)
+
+    # Sync helpers used directly from step defs:
+    def list_document_node_ids_sync(self) -> list[str]:
+        return list(self._nodes)
 
     def prune(self) -> None:
         """Clear all document nodes (simulates graph store wipe)."""
@@ -121,7 +131,7 @@ def step_graph_disabled_given(context):
 def step_given_ingest(context, name):
     """Seed a document into LanceDB and mirror it via SyncService.upsert_one."""
     context.lance.add(name)
-    context.sync.upsert_one({"id": name, "title": name, "path": name})
+    asyncio.run(context.sync.upsert_one({"id": name, "title": name, "path": name}))
 
 
 @given("the graph store is pruned")
@@ -144,13 +154,13 @@ def step_given_ingest_many(context, names):
 @when('I ingest document "{name}"')
 def step_when_ingest(context, name):
     context.lance.add(name)
-    context.sync.upsert_one({"id": name, "title": name, "path": name})
+    asyncio.run(context.sync.upsert_one({"id": name, "title": name, "path": name}))
 
 
 @when('I delete document "{name}"')
 def step_when_delete(context, name):
     context.lance.remove(name)
-    context.sync.delete_one(name)
+    asyncio.run(context.sync.delete_one(name))
 
 
 @when("I enable the graph daemon")
@@ -165,13 +175,13 @@ def step_when_prune(context):
 
 @when("I trigger a reconcile")
 def step_when_reconcile(context):
-    context.sync.reconcile()
+    asyncio.run(context.sync.reconcile())
 
 
 @when("the server restarts")
 def step_when_restart(context):
     """Simulate server startup: run_startup_reconcile against the current state."""
-    run_startup_reconcile(context.sync)
+    asyncio.run(run_startup_reconcile(context.sync))
 
 
 # ---------------------------------------------------------------------------
@@ -181,13 +191,13 @@ def step_when_restart(context):
 
 @then('the graph has a document node "{name}"')
 def step_then_graph_has(context, name):
-    ids = context.graph.list_document_node_ids("local")
+    ids = context.graph.list_document_node_ids_sync()
     assert name in ids, f"expected graph to contain document node '{name}', found: {ids}"
 
 
 @then('the graph has no document node "{name}"')
 def step_then_graph_has_not(context, name):
-    ids = context.graph.list_document_node_ids("local")
+    ids = context.graph.list_document_node_ids_sync()
     assert name not in ids, (
         f"expected graph NOT to contain document node '{name}', but it does: {ids}"
     )
@@ -195,7 +205,7 @@ def step_then_graph_has_not(context, name):
 
 @then("sync drift is {n:d}")
 def step_then_drift(context, n):
-    status: SyncStatus = context.sync.status()
+    status: SyncStatus = asyncio.run(context.sync.status())
     assert status.drift == n, (
         f"expected drift={n}, got drift={status.drift} "
         f"(lancedb={status.lancedb_count}, graph={status.graph_count}, "

@@ -29,6 +29,10 @@ class _FakeLanceStore:
 
 
 class _FakeGraphBackend:
+    """GraphBackend fake. ``is_enabled`` stays sync; I/O methods are async
+    so SyncService exercises the real await contract (as against the real
+    ``GraphClient``)."""
+
     def __init__(self, ids: list[str], enabled: bool = True):
         self._ids = set(ids)
         self._enabled = enabled
@@ -36,13 +40,13 @@ class _FakeGraphBackend:
     def is_enabled(self) -> bool:
         return self._enabled
 
-    def list_document_node_ids(self, kb: str) -> list[str]:
+    async def list_document_node_ids(self, kb: str) -> list[str]:
         return list(self._ids)
 
-    def upsert_document_node(self, kb: str, document: dict) -> None:
+    async def upsert_document_node(self, kb: str, document: dict) -> None:
         self._ids.add(document["id"])
 
-    def delete_document_node(self, kb: str, doc_id: str) -> None:
+    async def delete_document_node(self, kb: str, doc_id: str) -> None:
         self._ids.discard(doc_id)
 
 

@@ -21,26 +21,26 @@ from guru_server.storage import VectorStore
 logger = logging.getLogger(__name__)
 
 
-def finalize_indexed_document(sync, document: dict) -> None:
+async def finalize_indexed_document(sync, document: dict) -> None:
     """Mirror a successfully-indexed document into the graph via SyncService.
 
     Accepts any object that satisfies the SyncService duck-type
-    (``graph_enabled() -> bool``, ``upsert_one(doc) -> None``).
+    (``graph_enabled() -> bool`` sync, ``upsert_one(doc)`` awaitable).
     No-op when the graph is disabled or *sync* is None.
     """
     if sync is None or not sync.graph_enabled():
         return
-    sync.upsert_one(document)
+    await sync.upsert_one(document)
 
 
-def finalize_deleted_document(sync, doc_id: str) -> None:
+async def finalize_deleted_document(sync, doc_id: str) -> None:
     """Mirror a deleted document removal into the graph via SyncService.
 
     No-op when the graph is disabled or *sync* is None.
     """
     if sync is None or not sync.graph_enabled():
         return
-    sync.delete_one(doc_id)
+    await sync.delete_one(doc_id)
 
 
 def _default_registry() -> ParserRegistry:
@@ -161,7 +161,7 @@ class BackgroundIndexer:
                             ),
                             feature="ingest_delete",
                         )
-                    finalize_deleted_document(self._sync, rel_path)
+                    await finalize_deleted_document(self._sync, rel_path)
 
             job.status = "completed"
             job.phase = None
@@ -293,7 +293,7 @@ class BackgroundIndexer:
                     ),
                     feature="ingest_delete",
                 )
-            finalize_deleted_document(self._sync, rel_path)
+            await finalize_deleted_document(self._sync, rel_path)
             job.files_processed += 1
             return
 
@@ -321,7 +321,7 @@ class BackgroundIndexer:
                 self._graph_client.submit_parse_result(kb_name=self._kb_name, payload=payload),
                 feature="ingest_artifacts",
             )
-        finalize_indexed_document(
+        await finalize_indexed_document(
             self._sync, {"id": rel_path, "title": rel_path, "path": rel_path}
         )
         logger.info("[job %s] Indexed %s (%d chunks)", short_id, rel_path, len(chunks))
