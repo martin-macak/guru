@@ -75,3 +75,23 @@ def stop_ollama_serve(proc: subprocess.Popen | None) -> None:
         proc.wait(timeout=5)
     except subprocess.TimeoutExpired:
         proc.kill()
+
+
+def run_startup_reconcile(sync) -> None:
+    """Run a best-effort reconcile on server boot when there's drift."""
+    from guru_server.sync import SyncService  # noqa: F401 — kept for type-checking context
+
+    status = sync.status()
+    if not status.graph_enabled:
+        logger.info("startup.reconcile skipped: graph disabled")
+        return
+    if status.drift == 0:
+        logger.info(
+            "startup.reconcile skipped: no drift (lancedb=%d graph=%d)",
+            status.lancedb_count,
+            status.graph_count,
+        )
+        return
+    logger.warning("startup.reconcile begin: drift=%d", status.drift)
+    sync.reconcile()
+    logger.info("startup.reconcile complete")

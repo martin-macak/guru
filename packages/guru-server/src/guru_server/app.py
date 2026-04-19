@@ -21,7 +21,9 @@ from guru_server.ingestion.python import PythonParser
 from guru_server.ingestion.registry import ParserRegistry
 from guru_server.jobs import JobRegistry
 from guru_server.manifest import FileManifest
+from guru_server.startup import run_startup_reconcile
 from guru_server.storage import VectorStore
+from guru_server.sync import GraphSyncAdapter, LanceDocumentAdapter, SyncService
 from guru_server.web_runtime import build_web_runtime, resolve_web_assets_dir
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,12 @@ async def lifespan(app: FastAPI):
         )
     except Exception:
         logger.exception("register_self_kb raised unexpectedly — continuing")
+
+    # Best-effort reconcile: ensure LanceDB ↔ graph are in sync on boot.
+    try:
+        run_startup_reconcile(app.state.sync)
+    except Exception:
+        logger.exception("startup reconcile raised unexpectedly — continuing")
 
     if app.state.indexer is not None:
         # Auto-index on startup
@@ -236,6 +244,13 @@ def create_app(
     graph_enabled = bool(app.state.config.graph and app.state.config.graph.enabled)
     app.state.graph_enabled = graph_enabled
     app.state.graph_client = build_graph_client_if_enabled(graph_enabled=graph_enabled)
+
+    # Wire SyncService: keeps LanceDB document IDs mirrored to graph nodes.
+    app.state.sync = SyncService(
+        kb=app.state.project_name,
+        lance=LanceDocumentAdapter(store=store),
+        graph=GraphSyncAdapter(client=app.state.graph_client),
+    )
 
     # Create indexer if we have all dependencies
     if store is not None and embedder is not None and app.state.manifest is not None:
