@@ -23,6 +23,7 @@ jobs:
       guru-mcp: ${{ steps.filter.outputs.guru-mcp }}
       guru-cli: ${{ steps.filter.outputs.guru-cli }}
       guru-graph: ${{ steps.filter.outputs.guru-graph }}
+      guru-web: ${{ steps.filter.outputs.guru-web }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -46,6 +47,8 @@ jobs:
               - 'packages/guru-cli/**'
             guru-graph:
               - 'packages/guru-graph/**'
+            guru-web:
+              - 'packages/guru-web/**'
 
   unit-tests:
     needs: detect-changes
@@ -111,6 +114,18 @@ jobs:
   e2e-tests:
     if: contains(github.event.pull_request.labels.*.name, 'require-e2e-tests')
     runs-on: ubuntu-latest
+    services:
+      neo4j:
+        image: neo4j:5
+        ports:
+          - 7687:7687
+        env:
+          NEO4J_AUTH: none
+        options: >-
+          --health-cmd "cypher-shell 'RETURN 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -130,6 +145,8 @@ jobs:
       - run: uv sync --all-packages
 
       - name: Run BDD e2e tests
+        env:
+          GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
         run: uv run behave tests/e2e/features/ -D capabilities=ollama
 
   # ---------------------------------------------------------------------------
@@ -179,3 +196,55 @@ jobs:
         run: |
           uv run behave tests/e2e/features/graph_plugin.feature -D capabilities=neo4j
           uv run behave tests/e2e/features/graph_cli_reads.feature -D capabilities=neo4j
+
+  # ---------------------------------------------------------------------------
+  # Web GUI — fast checks (typecheck + unit tests)
+  # Runs whenever packages/guru-web/** changes
+  # ---------------------------------------------------------------------------
+  web-checks:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.guru-web == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/guru-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: packages/guru-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # Web GUI — slow build (production Vite build)
+  # On-demand: add label "require-web-build" to trigger
+  # ---------------------------------------------------------------------------
+  web-build:
+    if: contains(github.event.pull_request.labels.*.name, 'require-web-build')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/guru-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: packages/guru-web/package-lock.json
+
+      - run: npm ci
+
+      - name: Production build
+        run: npx vite build

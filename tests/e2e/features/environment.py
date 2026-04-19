@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 import uvicorn
 from fastapi.testclient import TestClient
+from playwright.sync_api import sync_playwright
 
 from guru_server.app import create_app
 from guru_server.config import resolve_config
@@ -125,6 +126,42 @@ External clients use OAuth 2.0 with PKCE flow.
 
 Internal services authenticate via long-lived API keys.
 """)
+
+    return tmp_path
+
+
+def _create_empty_web_project() -> Path:
+    """Empty project for @web features — no pre-seeded docs.
+
+    The feature steps write their own documents into ``docs/`` (which matches
+    the ``docs/**/*.md`` rule). Keeping the fixture empty gives the web BDD
+    scenarios a clean, minimal document list.
+
+    The project is named ``local`` so graph-surface scenarios can reference
+    the KB as ``kb:local`` regardless of the random tmpdir name.
+    """
+    tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
+
+    guru_dir = tmp_path / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "name": "local",
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+        "graph": {"enabled": False},
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    # Pre-create docs/ so the file watcher / indexer has somewhere to look.
+    (tmp_path / "docs").mkdir()
 
     return tmp_path
 
@@ -474,6 +511,115 @@ def _start_server(
     return server, thread
 
 
+def _create_web_graph_project() -> Path:
+    """Empty project for @web @graph_surface features.
+
+    Graph is disabled in config — the test harness enables it in-process
+    via context.app.state after the server starts (so a real Neo4j is not
+    needed for basic canvas scenarios).
+    """
+    tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
+
+    guru_dir = tmp_path / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+        # graph.enabled=false in config; the harness injects a FakeBackend
+        # graph_client directly into app.state so no real daemon is needed.
+        "graph": {"enabled": False},
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    (tmp_path / "docs").mkdir()
+
+    return tmp_path
+
+
+def _start_web_server(
+    project_dir: Path, embedder: OllamaEmbedder, tcp_port: int
+) -> tuple[uvicorn.Server, threading.Thread, object]:
+    """Start a guru-server that listens on BOTH UDS and a TCP port.
+
+    The UDS socket is used by the CLI steps; the TCP port is the base URL
+    that Playwright navigates to so the browser can load the web UI.
+    The web bundle (static assets) must already be built and present in
+    guru_server/web_assets/ (or packages/guru-web/dist/).
+    """
+    import socket as _socket
+
+    socket_path = str(project_dir / ".guru" / "guru.sock")
+    pid_path = project_dir / ".guru" / "guru.pid"
+
+    config = resolve_config(project_root=project_dir)
+    store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
+
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
+    app = create_app(
+        store=store,
+        embedder=embedder,
+        config=config,
+        project_root=str(project_dir),
+        auto_index=False,
+        embed_cache=embed_cache,
+    )
+
+    # Build a list of pre-bound sockets: one UDS for CLI tools, one TCP for the browser.
+    uds_sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    uds_sock.bind(socket_path)
+    uds_sock.listen(2048)
+
+    tcp_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    tcp_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    tcp_sock.bind(("127.0.0.1", tcp_port))
+    tcp_sock.listen(2048)
+
+    uvi_config = uvicorn.Config(app, log_level="warning")
+    server = uvicorn.Server(uvi_config)
+
+    # Pass both pre-bound sockets to uvicorn. When sockets are provided,
+    # uvicorn uses them directly (no rebinding) — one UDS for CLI/UDS steps,
+    # one TCP for the Playwright browser.
+    thread = threading.Thread(
+        target=lambda: server.run(sockets=[uds_sock, tcp_sock]),
+        daemon=True,
+    )
+    thread.start()
+
+    pid_path.write_text(str(os.getpid()))
+
+    # Wait until the TCP listener is accepting requests.
+    # The UDS socket file already exists (bound above), but the event loop
+    # may not yet be running. Poll the TCP health endpoint instead.
+    import httpx as _httpx
+
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline:
+        try:
+            resp = _httpx.get(f"http://127.0.0.1:{tcp_port}/web/boot", timeout=2.0)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"guru-server (web/TCP) did not start within 15 s on port {tcp_port}")
+
+    # Return the app object so callers can inject state (e.g. a FakeBackend
+    # graph_client) without restarting the server.
+    return server, thread, app
+
+
 def _create_federation_project(name: str, base_dir: Path, fed_dir: Path) -> Path:
     """Create a minimal guru project for federation tests.
 
@@ -694,16 +840,40 @@ def before_scenario(context, scenario):
     intentionally under-implemented at this point in the plan. We mark them
     skipped here so behave treats them as skipped rather than erroring on
     undefined steps.
+
+    Scenarios tagged with `@xfail_until_phase_3` are skipped until phase 3
+    web UI work is complete.
     """
+    if "xfail_until_phase_3" in scenario.effective_tags:
+        scenario.skip("Waiting for phase 3")
+        return
+
     for tag in scenario.tags:
         if tag.startswith("skip_until_"):
             scenario.skip(f"pending: {tag}")
             return
 
+    if "web" in scenario.effective_tags:
+        try:
+            context._playwright = sync_playwright().start()
+            context.browser = context._playwright.chromium.launch(headless=True)
+            context.page = context.browser.new_page()
+        except Exception as e:
+            scenario.skip(f"Playwright unavailable: {e}")
+
 
 def after_scenario(context, scenario):
-    """Stop any MCP patcher started by a step (graph_mcp_tools.feature)."""
+    """Stop any MCP patcher started by a step (graph_mcp_tools.feature).
+
+    Also closes the Playwright browser if the scenario was tagged @web.
+    """
     import contextlib as _ctx
+
+    if getattr(context, "page", None) is not None:
+        context.page.close()
+        context.browser.close()
+        context._playwright.stop()
+        context.page = None
 
     patcher = getattr(context, "_mcp_patcher", None)
     if patcher is not None:
@@ -770,6 +940,7 @@ def before_feature(context, feature):
         or "skill_distribution" in feature.filename
         or "parser_extensibility" in feature.filename
         or "constitution_invariants" in feature.filename
+        or "sync_invariant" in feature.filename
     ):
         import os as _os
         import tempfile as _tempfile
@@ -786,6 +957,9 @@ def before_feature(context, feature):
         # Support) with a single writable directory so local BDD works even
         # when the platform default isn't writable under the test sandbox.
         _os.environ["GURU_GRAPH_HOME"] = _os.path.join(context.graph_tmp, "home")
+        return
+
+    if "tui_mocked" in feature.tags:
         return
 
     # Isolate the embedding cache per feature so scenarios don't pollute each other
@@ -813,13 +987,32 @@ def before_feature(context, feature):
     elif "gitignore_project" in feature.tags:
         context.project_dir = _create_gitignore_project()
         context.embedder = _make_fake_embedder()
+    elif "web" in feature.tags:
+        # @web features seed their own documents via steps — use an empty
+        # project so the list isn't polluted by unrelated fixture files.
+        context.project_dir = _create_empty_web_project()
+        context.embedder = _make_fake_embedder()
     else:
         context.project_dir = _create_standard_project()
         context.embedder = _make_fake_embedder()
 
-    context.server_client, context.guru_client = _start_inprocess_server(
-        context.project_dir, context.embedder
-    )
+    if "web" in feature.tags:
+        # @web features need the server to listen on TCP so the browser can
+        # reach the web UI. We start a dual-socket server (UDS + TCP) so that
+        # both CLI/UDS steps and Playwright work against the same instance.
+        import socket as _socket
+
+        with _socket.socket() as _sock:
+            _sock.bind(("127.0.0.1", 0))
+            _web_port = _sock.getsockname()[1]
+        context.server_url = f"http://127.0.0.1:{_web_port}"
+        context.server, context.server_thread, context.app = _start_web_server(
+            context.project_dir, context.embedder, _web_port
+        )
+    else:
+        context.server_client, context.guru_client = _start_inprocess_server(
+            context.project_dir, context.embedder
+        )
 
 
 def after_feature(context, feature):
@@ -891,6 +1084,7 @@ def after_feature(context, feature):
         or "skill_distribution" in feature.filename
         or "parser_extensibility" in feature.filename
         or "constitution_invariants" in feature.filename
+        or "sync_invariant" in feature.filename
     ):
         import contextlib as _ctx
         import os as _os

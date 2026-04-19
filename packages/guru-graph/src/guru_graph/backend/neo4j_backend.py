@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -11,6 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from neo4j import GraphDatabase
+from neo4j.graph import Node as _Neo4jNode
+from neo4j.graph import Path as _Neo4jPath
+from neo4j.graph import Relationship as _Neo4jRelationship
+from neo4j.spatial import Point
+from neo4j.time import Date, DateTime, Duration, Time
 
 from ..neo4j_process import Neo4jRuntime, start_neo4j, stop_neo4j
 from ..versioning import check_migration_target
@@ -24,6 +30,56 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+_LABEL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _cypher_identifier(value: str) -> str:
+    if not _LABEL_RE.match(value):
+        raise ValueError(f"invalid graph identifier: {value!r}")
+    return value
+
+
+def _coerce_value(value: Any) -> Any:
+    """Convert Neo4j driver types into JSON-serializable Python values.
+
+    Cypher results can contain Node/Relationship/Path and spatial/temporal
+    types that FastAPI's default encoder can't handle. Collapse them to
+    plain dicts/lists/primitives so `/query` can return them verbatim.
+    """
+    if isinstance(value, _Neo4jNode):
+        return {
+            "_type": "node",
+            "id": value.element_id,
+            "labels": sorted(value.labels),
+            "properties": {k: _coerce_value(v) for k, v in dict(value).items()},
+        }
+    if isinstance(value, _Neo4jRelationship):
+        return {
+            "_type": "relationship",
+            "id": value.element_id,
+            "type": value.type,
+            "start": value.start_node.element_id if value.start_node else None,
+            "end": value.end_node.element_id if value.end_node else None,
+            "properties": {k: _coerce_value(v) for k, v in dict(value).items()},
+        }
+    if isinstance(value, _Neo4jPath):
+        return {
+            "_type": "path",
+            "nodes": [_coerce_value(n) for n in value.nodes],
+            "relationships": [_coerce_value(r) for r in value.relationships],
+        }
+    if isinstance(value, Point):
+        return {"_type": "point", "srid": value.srid, "coordinates": list(value)}
+    if isinstance(value, Date | DateTime | Time | Duration):
+        return value.iso_format()
+    if isinstance(value, list | tuple):
+        return [_coerce_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _coerce_value(v) for k, v in value.items()}
+    if isinstance(value, bytes | bytearray):
+        return value.hex()
+    return value
 
 
 class _Neo4jTx(Tx):
@@ -50,7 +106,7 @@ class _Neo4jTx(Tx):
         start = time.monotonic()
         res = self._neo4j_tx.run(cypher, parameters=params)
         columns = list(res.keys())
-        rows = [list(r.values()) for r in res]
+        rows = [[_coerce_value(v) for v in r.values()] for r in res]
         elapsed_ms = (time.monotonic() - start) * 1000
         return CypherResult(columns=columns, rows=rows, elapsed_ms=elapsed_ms)
 
@@ -144,7 +200,7 @@ class Neo4jBackend:
         with self._driver.session() as s:
             res = s.run(cypher, parameters=params)
             columns = list(res.keys())
-            rows = [list(r.values()) for r in res]
+            rows = [[_coerce_value(v) for v in r.values()] for r in res]
         elapsed_ms = (time.monotonic() - start) * 1000
         return CypherResult(columns=columns, rows=rows, elapsed_ms=elapsed_ms)
 
@@ -155,7 +211,7 @@ class Neo4jBackend:
 
             def _work(tx):
                 res = tx.run(cypher, parameters=params)
-                return list(res.keys()), [list(r.values()) for r in res]
+                return list(res.keys()), [[_coerce_value(v) for v in r.values()] for r in res]
 
             columns, rows = s.execute_read(_work)
         elapsed_ms = (time.monotonic() - start) * 1000
@@ -266,6 +322,201 @@ class Neo4jBackend:
                     "updated_at": r["updated_at"] / 1000.0,
                 }
                 for r in rs
+            ]
+
+    # ---- Document node CRUD (sync layer) ----
+    def list_document_nodes(self, kb: str) -> list[dict[str, Any]]:
+        with self._driver.session() as s:
+            rs = s.run(
+                "MATCH (d:Document {kb: $kb}) RETURN d.id AS id, d.title AS title, d.path AS path",
+                parameters={"kb": kb},
+            )
+            return [{"id": r["id"], "title": r["title"], "path": r["path"]} for r in rs]
+
+    def upsert_document_node(self, kb: str, document: dict[str, Any]) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (k:Kb {name: $kb})
+                MERGE (d:Document {id: $id, kb: $kb})
+                  ON CREATE SET d.created_at = timestamp()
+                SET d.title = $title, d.path = $path, d.updated_at = timestamp()
+                MERGE (k)-[:CONTAINS]->(d)
+                """,
+                parameters={
+                    "kb": kb,
+                    "id": document["id"],
+                    "title": document.get("title", ""),
+                    "path": document.get("path", ""),
+                },
+            )
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (d:Document {id: $id, kb: $kb}) DETACH DELETE d",
+                parameters={"id": doc_id, "kb": kb},
+            )
+
+    def upsert_artifact_edge(
+        self,
+        *,
+        from_id: str,
+        to_id: str,
+        rel_type: str,
+        kind: str | None,
+        properties: dict[str, Any],
+    ) -> None:
+        graph_rel = _cypher_identifier(rel_type)
+        with self._driver.session() as s:
+            s.run(
+                f"""
+                MATCH (a {{id: $from_id}}), (b {{id: $to_id}})
+                MERGE (a)-[r:{graph_rel}]->(b)
+                SET r.kind = $kind
+                SET r += $properties
+                """,
+                parameters={
+                    "from_id": from_id,
+                    "to_id": to_id,
+                    "kind": kind,
+                    "properties": properties,
+                },
+            )
+
+    def list_artifact_neighbors(
+        self,
+        *,
+        node_id: str,
+        direction: str,
+        rel_type: str,
+        kind: str | None,
+        depth: int,
+        limit: int,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        root = self.get_artifact(node_id=node_id)
+        if root is None:
+            return [], []
+
+        patterns = {
+            "out": "MATCH p=(root {id: $node_id})-[rels*1..$depth]->(neighbor)",
+            "in": "MATCH p=(root {id: $node_id})<-[rels*1..$depth]-(neighbor)",
+            "both": "MATCH p=(root {id: $node_id})-[rels*1..$depth]-(neighbor)",
+        }
+        cypher = (
+            patterns[direction]
+            + """
+            WHERE ALL(
+                rel IN rels
+                WHERE ($rel_type = 'both' OR type(rel) = $rel_type)
+                  AND ($kind IS NULL OR rel.kind = $kind)
+            )
+            RETURN [node IN nodes(p) |
+                        {
+                            id: node.id,
+                            label: head([label IN labels(node) WHERE NOT label IN ['Kb', '_Meta']]),
+                            properties: properties(node)
+                        }
+                   ] AS path_nodes,
+                   [rel IN relationships(p) |
+                        {
+                            from_id: startNode(rel).id,
+                            to_id: endNode(rel).id,
+                            rel_type: type(rel),
+                            kind: rel.kind,
+                            properties: properties(rel)
+                        }
+                   ] AS path_edges
+            """
+        )
+        with self._driver.session() as s:
+            rs = s.run(
+                cypher,
+                parameters={
+                    "node_id": node_id,
+                    "depth": depth,
+                    "rel_type": rel_type,
+                    "kind": kind,
+                },
+            )
+            nodes_by_id: dict[str, dict[str, Any]] = {root["id"]: root}
+            edges_by_key: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
+            for rec in rs:
+                for node in rec["path_nodes"]:
+                    if node["id"] is not None and node["id"] not in nodes_by_id:
+                        nodes_by_id[node["id"]] = {
+                            "id": node["id"],
+                            "label": node["label"],
+                            "properties": dict(node["properties"] or {}),
+                        }
+                for edge in rec["path_edges"]:
+                    key = (
+                        edge["from_id"],
+                        edge["to_id"],
+                        edge["rel_type"],
+                        edge.get("kind"),
+                    )
+                    if key not in edges_by_key:
+                        edges_by_key[key] = {
+                            "from_id": edge["from_id"],
+                            "to_id": edge["to_id"],
+                            "rel_type": edge["rel_type"],
+                            "kind": edge.get("kind"),
+                            "properties": dict(edge.get("properties") or {}),
+                        }
+            ordered_nodes = list(nodes_by_id.values())[:limit]
+            allowed_ids = {node["id"] for node in ordered_nodes}
+            ordered_edges = [
+                edge
+                for edge in edges_by_key.values()
+                if edge["from_id"] in allowed_ids and edge["to_id"] in allowed_ids
+            ]
+            return ordered_nodes, ordered_edges
+
+    def find_artifacts(
+        self,
+        *,
+        name: str | None = None,
+        qualname_prefix: str | None = None,
+        label: str | None = None,
+        tag: str | None = None,
+        kb_name: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        filters = ["n.id IS NOT NULL", "NOT n:Kb", "NOT n:_Meta"]
+        params: dict[str, Any] = {"limit": limit}
+        if label:
+            filters.append("$label IN labels(n)")
+            params["label"] = label
+        if name:
+            filters.append("coalesce(n.name, '') STARTS WITH $name")
+            params["name"] = name
+        if qualname_prefix:
+            filters.append("coalesce(n.qualname, '') STARTS WITH $qualname_prefix")
+            params["qualname_prefix"] = qualname_prefix
+        if tag:
+            filters.append("$tag IN coalesce(n.tags, [])")
+            params["tag"] = tag
+        if kb_name:
+            filters.append("n.kb_name = $kb_name")
+            params["kb_name"] = kb_name
+        cypher = (
+            "MATCH (n) "
+            f"WHERE {' AND '.join(filters)} "
+            "RETURN n.id AS id, "
+            "       head([label IN labels(n) WHERE NOT label IN ['Kb', '_Meta']]) AS label, "
+            "       properties(n) AS properties "
+            "ORDER BY n.id LIMIT $limit"
+        )
+        with self._driver.session() as s:
+            rs = s.run(cypher, parameters=params)
+            return [
+                {
+                    "id": rec["id"],
+                    "label": rec["label"],
+                    "properties": dict(rec["properties"] or {}),
+                }
+                for rec in rs
             ]
 
     def delete_kb(self, name: str) -> bool:
@@ -556,60 +807,6 @@ class Neo4jBackend:
                 }
                 for r in rs
             ]
-
-    def find_artifacts(
-        self,
-        *,
-        name: str | None,
-        qualname_prefix: str | None,
-        label: str | None,
-        tag: str | None,
-        kb_name: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"limit": limit}
-        if label is not None:
-            if label != "Document" and label not in ALLOWED_ARTIFACT_LABELS:
-                raise ValueError(f"unknown artifact label: {label!r}")
-            match_clause = f"MATCH (n:{label})"
-        else:
-            match_clause = "MATCH (n)"
-        filters: list[str] = []
-        if name is not None:
-            filters.append("n.name = $name")
-            params["name"] = name
-        if qualname_prefix is not None:
-            filters.append("n.qualname STARTS WITH $qualname_prefix")
-            params["qualname_prefix"] = qualname_prefix
-        if tag is not None:
-            filters.append("$tag IN n.tags")
-            params["tag"] = tag
-        if kb_name is not None:
-            filters.append("n.kb_name = $kb_name")
-            params["kb_name"] = kb_name
-        # Always filter out schema/meta nodes.
-        filters.append("NOT any(lbl IN labels(n) WHERE lbl STARTS WITH '_')")
-        where = "WHERE " + " AND ".join(filters)
-        cypher = (
-            f"{match_clause} {where} "
-            "RETURN n.id AS id, labels(n) AS labels, properties(n) AS props "
-            "LIMIT $limit"
-        )
-        with self._driver.session() as s:
-            rs = s.run(cypher, parameters=params)
-            out: list[dict[str, Any]] = []
-            for r in rs:
-                labels = [lbl for lbl in (r["labels"] or []) if not lbl.startswith("_")]
-                if not labels:
-                    continue
-                out.append(
-                    {
-                        "id": r["id"],
-                        "label": labels[0],
-                        "properties": dict(r["props"] or {}),
-                    }
-                )
-            return out
 
     def list_annotations_for(self, *, node_id: str) -> list[dict[str, Any]]:
         with self._driver.session() as s:

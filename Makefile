@@ -13,6 +13,12 @@ help:
 	@echo "Setup"
 	@echo "  install            Install all workspace packages (uv sync --all-packages)"
 	@echo ""
+	@echo "Development"
+	@echo "  dev                Run dev-server and dev-web together (Ctrl-C to stop)"
+	@echo "  dev-server         Run guru-server with hot-reload on :$(GURU_DEV_PORT)"
+	@echo "  dev-web            Run Vite dev server on :5173 (proxies to dev-server)"
+	@echo "                     Override port: make dev GURU_DEV_PORT=9000"
+	@echo ""
 	@echo "Testing"
 	@echo "  test               Unit + integration tests (fast, no e2e)"
 	@echo "  test-unit          Unit tests across all packages"
@@ -27,8 +33,10 @@ help:
 	@echo "  CAPABILITIES=all make test-e2e    # every registered capability"
 	@echo ""
 	@echo "Build"
-	@echo "  build              Build all 5 wheels into dist/"
+	@echo "  build-web          Build the web UI (packages/guru-web) and sync to guru-server"
+	@echo "  build              Build all 5 wheels into dist/ (runs build-web first)"
 	@echo "  build-index        Build wheels then generate PEP 503 index into dist/simple/"
+	@echo "  clean-web          Remove built web assets from guru-web and guru-server"
 	@echo ""
 	@echo "Code quality"
 	@echo "  lint               Check code style (ruff check)"
@@ -41,8 +49,27 @@ help:
 # ─── Setup ───────────────────────────────────────────────────────────────────
 
 .PHONY: install
-install:
+install: build-web
 	uv sync --all-packages
+
+# ─── Development ─────────────────────────────────────────────────────────────
+
+GURU_DEV_PORT ?= 8765
+
+.PHONY: dev-server
+dev-server:
+	GURU_DEV_PORT=$(GURU_DEV_PORT) uv run guru-server-dev
+
+.PHONY: dev-web
+dev-web:
+	cd packages/guru-web && GURU_DEV_PORT=$(GURU_DEV_PORT) npm run dev
+
+.PHONY: dev
+dev:
+	@trap 'kill 0' EXIT INT TERM; \
+	$(MAKE) dev-server & \
+	$(MAKE) dev-web & \
+	wait
 
 # ─── Testing ─────────────────────────────────────────────────────────────────
 
@@ -88,8 +115,17 @@ test-graph:
 
 # ─── Build ───────────────────────────────────────────────────────────────────
 
+.PHONY: build-web
+build-web:
+	cd packages/guru-web && npm ci && npm run build
+
+.PHONY: clean-web
+clean-web:
+	rm -rf packages/guru-web/dist
+	find packages/guru-server/src/guru_server/web_assets -mindepth 1 ! -name .gitignore -exec rm -rf {} +
+
 .PHONY: build
-build:
+build: build-web
 	@mkdir -p dist
 	@for pkg in $(PACKAGES) .; do \
 		uv build --directory $$pkg --out-dir "$$(pwd)/dist/"; \
@@ -116,7 +152,7 @@ fmt format:
 # ─── Maintenance ─────────────────────────────────────────────────────────────
 
 .PHONY: clean
-clean:
+clean: clean-web
 	rm -rf dist/ build/
 	find . -type d -name __pycache__ -not -path './.git/*' -exec rm -rf {} +
 	find . -type d -name '*.egg-info' -not -path './.git/*' -exec rm -rf {} +

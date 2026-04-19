@@ -291,7 +291,7 @@ class GraphClient:
             return False
         raise GraphUnavailable(f"unexpected status from DELETE /relates: {resp.status_code}")
 
-    async def describe_artifact(self, *, node_id: str) -> ArtifactNode | None:
+    async def describe_artifact(self, node_id: str) -> ArtifactNode | None:
         """Fetch an Artifact by id with its annotations + RELATES links inline.
 
         Returns None if no node with `node_id` exists. Raises GraphUnavailable
@@ -308,7 +308,6 @@ class GraphClient:
 
     async def neighbors(
         self,
-        *,
         node_id: str,
         direction: Literal["in", "out", "both"] = "both",
         rel_type: Literal["CONTAINS", "RELATES", "both"] = "both",
@@ -403,3 +402,41 @@ class GraphClient:
         q = CypherQuery(cypher=cypher, params=params or {}, read_only=read_only)
         resp = await self._request("POST", "/query", json=q.model_dump())
         return QueryResult.model_validate(resp.json())
+
+    # ---- Document-node CRUD (sync-layer helpers) ----
+
+    async def list_document_nodes(self, kb: str) -> list[dict]:
+        """Return all Document nodes registered under a KB."""
+        resp = await self._request("GET", f"/graph/documents/{quote(kb, safe='')}")
+        if resp.status_code != 200:
+            raise GraphUnavailable(
+                f"unexpected status from GET /graph/documents/{kb}: {resp.status_code}"
+            )
+        return resp.json().get("nodes", [])
+
+    async def upsert_document_node(self, kb: str, document: dict) -> None:
+        """Create or update a Document node under a KB.
+
+        ``document`` must contain at least ``id``, ``title``, and ``path``
+        fields. Extra keys are passed as ``metadata``.
+        """
+        resp = await self._request(
+            "POST",
+            f"/graph/documents/{quote(kb, safe='')}",
+            json=document,
+        )
+        if resp.status_code != 204:
+            raise GraphUnavailable(
+                f"unexpected status from POST /graph/documents/{kb}: {resp.status_code}"
+            )
+
+    async def delete_document_node(self, kb: str, doc_id: str) -> None:
+        """Remove a Document node (and all its edges) from the graph."""
+        resp = await self._request(
+            "DELETE",
+            f"/graph/documents/{quote(kb, safe='')}/{quote(doc_id, safe='')}",
+        )
+        if resp.status_code != 204:
+            raise GraphUnavailable(
+                f"unexpected status from DELETE /graph/documents/{kb}/{doc_id}: {resp.status_code}"
+            )

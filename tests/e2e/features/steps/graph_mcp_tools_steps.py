@@ -63,7 +63,7 @@ class _FakeGraphClient:
 
     # --- Reads ---
 
-    async def describe_artifact(self, *, node_id: str) -> ArtifactNode | None:
+    async def describe_artifact(self, node_id: str) -> ArtifactNode | None:
         from urllib.parse import quote
 
         resp = self._http.get(f"/artifacts/{quote(node_id, safe='')}")
@@ -74,7 +74,6 @@ class _FakeGraphClient:
 
     async def neighbors(
         self,
-        *,
         node_id: str,
         direction: str = "both",
         rel_type: str = "both",

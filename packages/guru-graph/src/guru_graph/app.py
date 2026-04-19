@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .backend.base import GraphBackend
-from .routes import admin, annotations, artifacts, ingest, kbs, query, relates
+from .routes import admin, annotations, artifacts, documents, ingest, kbs, query, relates
 from .versioning import (
     PROTOCOL_HEADER,
     PROTOCOL_VERSION,
@@ -50,6 +50,7 @@ def create_app(*, backend: GraphBackend) -> FastAPI:
     app.include_router(admin.router)
     app.include_router(annotations.router)
     app.include_router(artifacts.router)
+    app.include_router(documents.router)
     app.include_router(ingest.router)
     app.include_router(kbs.router)
     app.include_router(query.router)
