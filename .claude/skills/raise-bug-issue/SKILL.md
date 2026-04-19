@@ -16,7 +16,7 @@ description: >
 
 - This skill creates a **bug issue only**. It MUST NOT attempt any fix, workaround,
   refactor, or code edit. Implementation belongs to the `bug-fixer` GitHub Copilot agent
-  (`.github/agents/bug-fixer.md`) or a human engineer.
+  (`.github/agents/bug-fixer.agent.md`) or a human engineer.
 - If, during investigation, you find the fix is trivial and are tempted to patch it —
   STOP. File the issue anyway. Link the location of the suspected fix in the RCA.
 - If the claim does not survive codebase verification (the code does what the user says
