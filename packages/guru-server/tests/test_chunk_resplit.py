@@ -39,6 +39,7 @@ def _make_chunk(
     content: str,
     *,
     breadcrumb: str = "Section",
+    section_breadcrumb: str = "",
     level: int = 2,
     chunk_id: str = "orig0000",
     frontmatter: dict | None = None,
@@ -54,6 +55,7 @@ def _make_chunk(
         content=content,
         file_path="/test.md",
         header_breadcrumb=breadcrumb,
+        section_breadcrumb=section_breadcrumb or breadcrumb,
         chunk_level=level,
         chunk_id=chunk_id,
         frontmatter=frontmatter or {},
@@ -542,6 +544,21 @@ class TestResplitChunk:
         for sub in result:
             assert sub.parent_chunk_id == "parent123"
 
+    def test_preserves_section_breadcrumb(self):
+        """section_breadcrumb must stay as the original (unsuffixed) breadcrumb."""
+        chunk = _make_chunk(
+            "A" * 800 + "\n\n" + "B" * 800,
+            breadcrumb="Root > Big Section",
+            section_breadcrumb="Root > Big Section",
+        )
+        result = _resplit_chunk(chunk, budget=100)
+        assert len(result) >= 2
+        for sub in result:
+            assert sub.section_breadcrumb == "Root > Big Section"
+            # header_breadcrumb has #part-N, but section_breadcrumb is stable
+            assert "#part-" in sub.header_breadcrumb
+            assert "#part-" not in sub.section_breadcrumb
+
     # --- breadcrumb numbering ---
 
     def test_breadcrumb_part_numbering_starts_at_1(self):
@@ -670,10 +687,7 @@ class TestResplitOversized:
             assert res is orig
 
     def test_all_oversized(self):
-        chunks = [
-            _make_chunk("X" * 800 + "\n\n" + "Y" * 800, chunk_id=f"id{i}")
-            for i in range(3)
-        ]
+        chunks = [_make_chunk("X" * 800 + "\n\n" + "Y" * 800, chunk_id=f"id{i}") for i in range(3)]
         result = MarkdownParser._resplit_oversized(chunks, budget=100)
         assert len(result) > 3
         for sub in result:
@@ -688,9 +702,7 @@ class TestResplitOversized:
 
     def test_preserves_order(self):
         c1 = _make_chunk("First content", chunk_id="c1", breadcrumb="First")
-        c2 = _make_chunk(
-            "X" * 800 + "\n\n" + "Y" * 800, chunk_id="c2", breadcrumb="Second"
-        )
+        c2 = _make_chunk("X" * 800 + "\n\n" + "Y" * 800, chunk_id="c2", breadcrumb="Second")
         c3 = _make_chunk("Third content", chunk_id="c3", breadcrumb="Third")
         result = MarkdownParser._resplit_oversized([c1, c2, c3], budget=100)
         assert result[0] is c1
@@ -801,9 +813,7 @@ class TestParseIntegrationResplit:
             assert _estimate_tokens(c.content) <= DEFAULT_TOKEN_BUDGET
 
     def test_oversized_with_table(self, parser, tmp_path, rule):
-        rows = "| Col1 | Col2 |\n|------|------|\n" + (
-            "| data | val  |\n" * 500
-        )
+        rows = "| Col1 | Col2 |\n|------|------|\n" + ("| data | val  |\n" * 500)
         md = f"# Title\n\n## Table\n\n{rows}\n\n## End\n\nDone.\n"
         p = tmp_path / "table.md"
         p.write_text(md, encoding="utf-8")
@@ -869,6 +879,29 @@ class TestParseIntegrationResplit:
         expected_doc_id = f"test::{p.name}"
         for c in result.chunks:
             assert c.parent_document_id == expected_doc_id
+
+    def test_section_breadcrumb_stable_after_resplit(self, parser, tmp_path, rule):
+        """section_breadcrumb stays unsuffixed even when header_breadcrumb gets #part-N."""
+        big = "Word. " * 2000
+        md = f"# Title\n\n## Big Section\n\n{big}\n\n## Small\n\nTiny.\n"
+        p = tmp_path / "sec_bc.md"
+        p.write_text(md, encoding="utf-8")
+        result = parser.parse(p, rule, kb_name="test", rel_path=p.name)
+        big_chunks = [c for c in result.chunks if "Big Section" in c.header_breadcrumb]
+        assert len(big_chunks) >= 2, "Expected resplit into multiple chunks"
+        for c in big_chunks:
+            # section_breadcrumb is the original, stable breadcrumb
+            assert "#part-" not in c.section_breadcrumb
+            assert "Big Section" in c.section_breadcrumb
+
+    def test_section_breadcrumb_equals_header_for_small_chunks(self, parser, tmp_path, rule):
+        """Non-split chunks should have section_breadcrumb == header_breadcrumb."""
+        md = "# Title\n\nSmall content.\n\n## Sec\n\nAlso small.\n"
+        p = tmp_path / "small_bc.md"
+        p.write_text(md, encoding="utf-8")
+        result = parser.parse(p, rule, kb_name="test", rel_path=p.name)
+        for c in result.chunks:
+            assert c.section_breadcrumb == c.header_breadcrumb
 
 
 # ============================================================================

@@ -107,9 +107,7 @@ def _resplit_chunk(chunk: Chunk, budget: int = DEFAULT_TOKEN_BUDGET) -> list[Chu
     sub_chunks: list[Chunk] = []
     for i, text in enumerate(final):
         part_label = f"#part-{i + 1}"
-        sub_id = hashlib.sha256(
-            f"{chunk.chunk_id}:{part_label}".encode()
-        ).hexdigest()[:16]
+        sub_id = hashlib.sha256(f"{chunk.chunk_id}:{part_label}".encode()).hexdigest()[:16]
         sub_chunks.append(
             replace(
                 chunk,
@@ -207,6 +205,7 @@ class MarkdownParser(DocumentParser):
                     frontmatter=fm,
                     labels=list(rule.labels),
                     chunk_id=chunk_id,
+                    section_breadcrumb=header_breadcrumb,
                     content_type=_detect_content_type(content),
                     kind="markdown_section",
                     language="markdown",
@@ -281,9 +280,7 @@ class MarkdownParser(DocumentParser):
         return merged
 
     @staticmethod
-    def _resplit_oversized(
-        chunks: list[Chunk], budget: int = DEFAULT_TOKEN_BUDGET
-    ) -> list[Chunk]:
+    def _resplit_oversized(chunks: list[Chunk], budget: int = DEFAULT_TOKEN_BUDGET) -> list[Chunk]:
         """Re-split any chunk exceeding the token *budget*."""
         result: list[Chunk] = []
         for chunk in chunks:
