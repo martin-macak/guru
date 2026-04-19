@@ -170,10 +170,7 @@ def test_list_documents(client):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
-    # List endpoint returns web-facing shape: path, title, excerpt
-    assert data[0]["path"] == "specs/auth.md"
-    assert "title" in data[0]
-    assert "excerpt" in data[0]
+    assert data[0]["file_path"] == "specs/auth.md"
 
 
 def test_list_documents_with_label_filter(client, mock_store):
@@ -195,7 +192,7 @@ def test_list_documents_with_label_filter(client, mock_store):
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 1
-    assert data[0]["path"] == "specs/rbac.md"
+    assert data[0]["file_path"] == "specs/rbac.md"
 
 
 def test_list_documents_with_unsupported_filter(client):
@@ -207,9 +204,7 @@ def test_get_document(client):
     resp = client.get("/documents/specs/auth.md")
     assert resp.status_code == 200
     data = resp.json()
-    # Detail endpoint returns web-facing shape: path, title, content
-    assert data["path"] == "specs/auth.md"
-    assert "title" in data
+    assert data["file_path"] == "specs/auth.md"
     assert "content" in data
 
 

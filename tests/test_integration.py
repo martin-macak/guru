@@ -154,8 +154,7 @@ def test_full_pipeline(client):
     resp = client.get("/documents")
     assert resp.status_code == 200
     docs = resp.json()
-    # List endpoint returns web-facing shape: path, title, excerpt
-    paths = [d["path"] for d in docs]
+    paths = [d["file_path"] for d in docs]
     assert any("auth.md" in p for p in paths)
     assert any("rbac.md" in p for p in paths)
 

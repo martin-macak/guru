@@ -2,34 +2,9 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, constr
 
 from guru_core.graph_types import DocumentSearchHit
-from guru_server.api.models import SectionOut
+from guru_server.api.models import DocumentListItem, DocumentOut, SectionOut
 
 router = APIRouter()
-
-
-class WebDocumentListItem(BaseModel):
-    """Web-facing document list item with human-readable fields.
-
-    The frontend (DocumentList.tsx) expects ``path``, ``title``, and
-    ``excerpt`` — derived from the storage row's ``file_path`` and
-    ``frontmatter`` fields.
-    """
-
-    path: str
-    title: str
-    excerpt: str
-
-
-class WebDocumentOut(BaseModel):
-    """Web-facing single document response.
-
-    The frontend (DocumentDetail.tsx) expects ``path``, ``title``, and
-    ``content``.
-    """
-
-    path: str
-    title: str
-    content: str
 
 
 class DocumentLanceMeta(BaseModel):
@@ -63,16 +38,7 @@ class DocumentSearchResponse(BaseModel):
 _ALLOWED_DOCUMENT_FILTERS = {"labels"}
 
 
-def _doc_to_web_item(doc: dict) -> WebDocumentListItem:
-    """Convert a storage document dict to a web-facing list item."""
-    file_path: str = doc.get("file_path") or doc.get("path", "")
-    frontmatter: dict = doc.get("frontmatter") or {}
-    title: str = frontmatter.get("title") or file_path.split("/")[-1]
-    excerpt: str = doc.get("excerpt") or doc.get("content", "")[:120]
-    return WebDocumentListItem(path=file_path, title=title, excerpt=excerpt)
-
-
-@router.get("/documents", response_model=list[WebDocumentListItem])
+@router.get("/documents", response_model=list[DocumentListItem])
 async def list_documents(request: Request):
     query_keys = set(request.query_params.keys())
     unsupported = sorted(query_keys - _ALLOWED_DOCUMENT_FILTERS)
@@ -98,7 +64,7 @@ async def list_documents(request: Request):
             doc for doc in documents if requested_labels.issubset(set(doc.get("labels", [])))
         ]
 
-    return [_doc_to_web_item(doc) for doc in documents]
+    return documents
 
 
 @router.get("/documents/{path:path}/sections/{header_path:path}", response_model=SectionOut)
@@ -156,16 +122,13 @@ async def document_metadata(path: str, request: Request):
     return DocumentMetadataOut(lance=lance, graph=graph)
 
 
-@router.get("/documents/{path:path}", response_model=WebDocumentOut)
+@router.get("/documents/{path:path}", response_model=DocumentOut)
 async def get_document(path: str, request: Request):
     store = request.app.state.store
     doc = store.get_document(path)
     if doc is None:
         raise HTTPException(status_code=404, detail=f"Document not found: {path}")
-    file_path: str = doc.get("file_path") or doc.get("path", path)
-    frontmatter: dict = doc.get("frontmatter") or {}
-    title: str = frontmatter.get("title") or file_path.split("/")[-1]
-    return WebDocumentOut(path=file_path, title=title, content=doc.get("content", ""))
+    return doc
 
 
 @router.post("/documents/search", response_model=DocumentSearchResponse)
