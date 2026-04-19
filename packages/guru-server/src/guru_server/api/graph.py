@@ -36,6 +36,8 @@ from guru_core.graph_types import (
 
 router = APIRouter(prefix="/graph")
 
+_WEB_ALLOWED_KINDS = {"document", "kb"}
+
 
 def _graph_disabled_body() -> dict:
     return {"status": "graph_disabled"}
@@ -95,7 +97,15 @@ async def proxy_neighbors(
         )
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
-    return JSONResponse(result.model_dump(mode="json"))
+    payload = result.model_dump(mode="json")
+    nodes = [n for n in payload.get("nodes", []) if n.get("kind") in _WEB_ALLOWED_KINDS]
+    kept_ids = {n["id"] for n in nodes}
+    edges = [
+        e
+        for e in payload.get("edges", [])
+        if e.get("from_id") in kept_ids and e.get("to_id") in kept_ids
+    ]
+    return JSONResponse({"nodes": nodes, "edges": edges})
 
 
 @router.post("/find")
