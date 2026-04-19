@@ -226,6 +226,22 @@ class ArtifactOpsBackend(GraphBackend, Protocol):
     def reattach_orphan(self, *, annotation_id: str, new_target_id: str) -> bool: ...
 
 
+@runtime_checkable
+class DocumentOpsBackend(GraphBackend, Protocol):
+    """Extension of GraphBackend with Document node CRUD for the sync layer.
+
+    These Document nodes are distinct from the ingest-pipeline's Document
+    artifacts — they represent the sync-layer's canonical document registry
+    under a KB, introduced in Phase 1 of the web UI refinement.
+    """
+
+    def list_document_nodes(self, kb: str) -> list[dict[str, Any]]: ...
+
+    def upsert_document_node(self, kb: str, document: dict[str, Any]) -> None: ...
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None: ...
+
+
 class GraphBackendRegistry:
     """Registry for available GraphBackend implementations.
 

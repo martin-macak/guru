@@ -277,6 +277,40 @@ class Neo4jBackend:
                 for r in rs
             ]
 
+    # ---- Document node CRUD (sync layer) ----
+    def list_document_nodes(self, kb: str) -> list[dict[str, Any]]:
+        with self._driver.session() as s:
+            rs = s.run(
+                "MATCH (d:Document {kb: $kb}) RETURN d.id AS id, d.title AS title, d.path AS path",
+                parameters={"kb": kb},
+            )
+            return [{"id": r["id"], "title": r["title"], "path": r["path"]} for r in rs]
+
+    def upsert_document_node(self, kb: str, document: dict[str, Any]) -> None:
+        with self._driver.session() as s:
+            s.run(
+                """
+                MATCH (k:Kb {name: $kb})
+                MERGE (d:Document {id: $id, kb: $kb})
+                  ON CREATE SET d.created_at = timestamp()
+                SET d.title = $title, d.path = $path, d.updated_at = timestamp()
+                MERGE (k)-[:CONTAINS]->(d)
+                """,
+                parameters={
+                    "kb": kb,
+                    "id": document["id"],
+                    "title": document.get("title", ""),
+                    "path": document.get("path", ""),
+                },
+            )
+
+    def delete_document_node(self, kb: str, doc_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (d:Document {id: $id, kb: $kb}) DETACH DELETE d",
+                parameters={"id": doc_id, "kb": kb},
+            )
+
     def upsert_artifact_edge(
         self,
         *,
