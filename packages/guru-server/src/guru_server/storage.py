@@ -90,7 +90,7 @@ class VectorStore:
                         r.setdefault("parent_document_id", "")
                     self.db.drop_table(TABLE_NAME)
                     self._table = self.db.create_table(TABLE_NAME, data=existing_rows)
-                # Refresh schema names after evolution
+                # Re-read schema names so the next evolution block sees newly added columns.
                 schema_names = set(self._table.schema.names)
 
             # Schema evolution: add section_breadcrumb column for stable
