@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from guru_core.graph_client import GraphClient
@@ -29,6 +29,8 @@ from guru_core.graph_types import (
     ArtifactLinkCreate,
     ArtifactUnlink,
     CypherQuery,
+    FederationRootNode,
+    GraphRootsPayload,
     ReattachRequest,
 )
 
@@ -214,3 +216,19 @@ async def proxy_query(body: CypherQuery, request: Request) -> JSONResponse:
     except GraphUnavailable:
         return JSONResponse(_graph_disabled_body())
     return JSONResponse(result.model_dump(mode="json"))
+
+
+@router.get("/roots", response_model=GraphRootsPayload)
+async def graph_roots(request: Request) -> GraphRootsPayload:
+    client = _client_or_none(request)
+    if client is None:
+        raise HTTPException(status_code=410, detail="graph is disabled")
+
+    project_name = getattr(request.app.state, "project_name", None)
+    try:
+        local_kb = await client.get_kb(project_name) if project_name else None
+    except GraphUnavailable as exc:
+        raise HTTPException(status_code=410, detail="graph is disabled") from exc
+
+    kbs = [local_kb] if local_kb is not None else []
+    return GraphRootsPayload(federation_root=FederationRootNode(), kbs=kbs)
