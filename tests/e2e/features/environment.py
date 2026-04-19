@@ -630,9 +630,12 @@ def before_scenario(context, scenario):
             return
 
     if "web" in scenario.effective_tags:
-        context._playwright = sync_playwright().start()
-        context.browser = context._playwright.chromium.launch(headless=True)
-        context.page = context.browser.new_page()
+        try:
+            context._playwright = sync_playwright().start()
+            context.browser = context._playwright.chromium.launch(headless=True)
+            context.page = context.browser.new_page()
+        except Exception as e:
+            scenario.skip(f"Playwright unavailable: {e}")
 
 
 def after_scenario(context, scenario):
@@ -734,11 +737,6 @@ def before_feature(context, feature):
     if "tui_mocked" in feature.tags:
         return
 
-    if "web" in feature.tags:
-        # Web feature scenarios start their own server (or are skipped before
-        # they run). Skip the default mocked-embedder server bootstrap here.
-        return
-
     # Isolate the embedding cache per feature so scenarios don't pollute each other
     cache_fd, cache_name = tempfile.mkstemp(prefix="guru-test-cache-", suffix=".db")
     os.close(cache_fd)
@@ -769,6 +767,17 @@ def before_feature(context, feature):
         context.embedder = _make_fake_embedder()
 
     context.server, context.server_thread = _start_server(context.project_dir, context.embedder)
+
+    # Provide a base URL for @web scenarios. The web UI will be served over TCP
+    # in Phase 3; for now we pick a free port so context.server_url is always
+    # set (the @xfail_until_phase_3 tag keeps web scenarios skipped until then).
+    if "web" in feature.tags:
+        import socket as _socket
+
+        with _socket.socket() as _sock:
+            _sock.bind(("127.0.0.1", 0))
+            _web_port = _sock.getsockname()[1]
+        context.server_url = f"http://127.0.0.1:{_web_port}"
 
 
 def after_feature(context, feature):
