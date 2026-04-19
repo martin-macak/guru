@@ -15,7 +15,7 @@ help:
 	@echo ""
 	@echo "Development"
 	@echo "  dev                Run dev-server and dev-web together (Ctrl-C to stop)"
-	@echo "  dev-server         Run guru-server with hot-reload on :$$GURU_DEV_PORT"
+	@echo "  dev-server         Run guru-server with hot-reload on :$(GURU_DEV_PORT)"
 	@echo "  dev-web            Run Vite dev server on :5173 (proxies to dev-server)"
 	@echo "                     Override port: make dev GURU_DEV_PORT=9000"
 	@echo ""
