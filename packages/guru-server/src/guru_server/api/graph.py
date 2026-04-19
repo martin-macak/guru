@@ -16,6 +16,7 @@ also uses this proxy for its read-only commands.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request
@@ -31,8 +32,15 @@ from guru_core.graph_types import (
     CypherQuery,
     FederationRootNode,
     GraphRootsPayload,
+    QueryResult,
     ReattachRequest,
 )
+
+from .models import GraphEdgeOut, GraphNodeOut, GraphQueryResult
+
+_WRITE_RE = re.compile(r"\b(create|merge|delete|set|remove|detach)\b", re.IGNORECASE)
+
+_FEDERATION_ID = "federation"
 
 router = APIRouter(prefix="/graph")
 
@@ -216,16 +224,56 @@ async def proxy_reattach_orphan(
     return JSONResponse(ann.model_dump(mode="json"))
 
 
-@router.post("/query")
-async def proxy_query(body: CypherQuery, request: Request) -> JSONResponse:
+def _extract_nodes_edges(
+    raw: QueryResult,
+) -> tuple[dict[str, GraphNodeOut], list[GraphEdgeOut]]:
+    """Extract nodes and edges from a QueryResult.
+
+    ``raw`` is a QueryResult whose rows are ``list[list[Any]]``. Each cell
+    may be a dict representing a node (has ``id`` key) or an edge (has
+    ``source`` and ``target`` keys), or a scalar (ignored).
+
+    Nodes are deduplicated by id. The federation root is filtered out.
+    """
+    nodes: dict[str, GraphNodeOut] = {}
+    edges: list[GraphEdgeOut] = []
+    for row in raw.rows:
+        for cell in row:
+            if not isinstance(cell, dict):
+                continue
+            if "source" in cell and "target" in cell and "kind" in cell:
+                # Edge-shaped cell
+                edges.append(
+                    GraphEdgeOut(source=cell["source"], target=cell["target"], kind=cell["kind"])
+                )
+            elif "id" in cell:
+                # Node-shaped cell
+                node_id = cell["id"]
+                if node_id == _FEDERATION_ID:
+                    continue
+                if node_id not in nodes:
+                    nodes[node_id] = GraphNodeOut(
+                        id=node_id,
+                        label=cell.get("label", node_id),
+                        kind=cell.get("kind", "unknown"),
+                        kb=cell.get("kb"),
+                    )
+    return nodes, edges
+
+
+@router.post("/query", response_model=GraphQueryResult)
+async def proxy_query(body: CypherQuery, request: Request) -> GraphQueryResult:
+    if _WRITE_RE.search(body.cypher):
+        raise HTTPException(status_code=400, detail="writes are not permitted")
     client = _client_or_none(request)
     if client is None:
-        return JSONResponse(_graph_disabled_body())
+        raise HTTPException(status_code=410, detail="graph is disabled")
     try:
         result = await client.graph_query(cypher=body.cypher, params=body.params)
-    except GraphUnavailable:
-        return JSONResponse(_graph_disabled_body())
-    return JSONResponse(result.model_dump(mode="json"))
+    except GraphUnavailable as exc:
+        raise HTTPException(status_code=410, detail="graph is disabled") from exc
+    nodes, edges = _extract_nodes_edges(result)
+    return GraphQueryResult(nodes=list(nodes.values()), edges=edges)
 
 
 @router.get("/roots", response_model=GraphRootsPayload)

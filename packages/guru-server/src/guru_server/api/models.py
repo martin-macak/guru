@@ -49,6 +49,24 @@ class StatusOut(CoreStatusOut):
     web: WebRuntimeOut = Field(default_factory=WebRuntimeOut)
 
 
+class GraphNodeOut(BaseModel):
+    id: str
+    label: str
+    kind: str
+    kb: str | None = None
+
+
+class GraphEdgeOut(BaseModel):
+    source: str
+    target: str
+    kind: str
+
+
+class GraphQueryResult(BaseModel):
+    nodes: list[GraphNodeOut]
+    edges: list[GraphEdgeOut]
+
+
 __all__ = [
     "CacheDeleteResult",
     "CachePruneRequest",
@@ -56,6 +74,9 @@ __all__ = [
     "DocumentListItem",
     "DocumentOut",
     "GraphBootOut",
+    "GraphEdgeOut",
+    "GraphNodeOut",
+    "GraphQueryResult",
     "IndexAccepted",
     "IndexOut",
     "JobDetail",
