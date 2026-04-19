@@ -41,3 +41,14 @@ def test_create_dev_app_mounts_api_router(project_dir: Path, monkeypatch):
     paths = {route.path for route in app.routes if hasattr(route, "path")}
     assert "/web/boot" in paths
     assert "/status" in paths
+
+
+def test_create_dev_app_raises_when_guru_dir_missing(tmp_path: Path, monkeypatch):
+    """create_dev_app raises RuntimeError if .guru/ does not exist."""
+    monkeypatch.setenv("GURU_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("GURU_EMBED_CACHE_PATH", str(tmp_path / "cache.db"))
+
+    from guru_server.dev import create_dev_app
+
+    with pytest.raises(RuntimeError, match=r"\.guru"):
+        create_dev_app()

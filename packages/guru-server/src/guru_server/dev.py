@@ -7,10 +7,10 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from guru_server.app import create_app
+from guru_server.bootstrap import resolve_cache_db_path
 from guru_server.config import resolve_config
 from guru_server.embed_cache import EmbeddingCache
 from guru_server.embedding import OllamaEmbedder
-from guru_server.main import _resolve_cache_db_path
 from guru_server.storage import VectorStore
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ def create_dev_app() -> FastAPI:
     store = VectorStore(db_path=str(guru_dir / "db"))
     embedder = OllamaEmbedder()
 
-    cache_db_path = _resolve_cache_db_path()
+    cache_db_path = resolve_cache_db_path()
     logger.info("Opening embedding cache at %s", cache_db_path)
     embed_cache = EmbeddingCache(db_path=cache_db_path)
 
