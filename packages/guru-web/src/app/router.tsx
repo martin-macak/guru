@@ -1,34 +1,21 @@
-import { useEffect } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { createHashRouter, Navigate } from "react-router-dom";
 
+import { DocumentsPage } from "../features/documents/DocumentsPage";
+import { GraphPage } from "../features/graph/GraphPage";
+import { StatusPage } from "../features/status/StatusPage";
 import { AppShell } from "./layout/AppShell";
-import { useWorkbench } from "../lib/state/workbench";
-import { surfaceToPath, type WorkbenchSurface, workbenchSurfaces } from "../lib/state/url";
 
-type SurfaceRouteProps = {
-  surface: WorkbenchSurface;
-};
-
-function SurfaceRoute({ surface }: SurfaceRouteProps) {
-  const { setSurface } = useWorkbench();
-
-  useEffect(() => {
-    setSurface(surface);
-  }, [setSurface, surface]);
-
-  return <AppShell />;
-}
-
-export function AppRouter() {
-  const defaultSurface = "investigate";
-
-  return (
-    <Routes>
-      <Route element={<Navigate replace to={surfaceToPath(defaultSurface)} />} path="/" />
-      {workbenchSurfaces.map((surface) => (
-        <Route element={<SurfaceRoute surface={surface} />} key={surface} path={surfaceToPath(surface)} />
-      ))}
-      <Route element={<Navigate replace to={surfaceToPath(defaultSurface)} />} path="*" />
-    </Routes>
-  );
-}
+export const router = createHashRouter([
+  {
+    path: "/",
+    element: <AppShell />,
+    children: [
+      { index: true, element: <Navigate to="/documents" replace /> },
+      { path: "documents", element: <DocumentsPage /> },
+      { path: "documents/*", element: <DocumentsPage /> },
+      { path: "graph", element: <GraphPage /> },
+      { path: "status", element: <StatusPage /> },
+      { path: "*", element: <Navigate to="/documents" replace /> },
+    ],
+  },
+]);
