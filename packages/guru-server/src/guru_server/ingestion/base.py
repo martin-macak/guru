@@ -18,6 +18,7 @@ class Chunk:
     labels: list[str] = field(default_factory=list)
     parent_chunk_id: str | None = None
     chunk_id: str | None = None
+    section_breadcrumb: str = ""  # stable, unsuffixed breadcrumb for section retrieval
     content_type: str = "text"  # "text" | "code" | "table" | "mixed"
     # Artifact-graph metadata (PR-1 additions):
     kind: str = (

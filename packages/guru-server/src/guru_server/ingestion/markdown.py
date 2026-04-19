@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import frontmatter
@@ -14,6 +15,109 @@ from guru_server.ingestion.base import Chunk, DocumentParser, GraphEdge, GraphNo
 _HEADING_RE = re.compile(r"^#+\s+(.+)", re.MULTILINE)
 _CODE_BLOCK_RE = re.compile(r"```", re.MULTILINE)
 _TABLE_ROW_RE = re.compile(r"^\|.+\|", re.MULTILINE)
+
+# nomic-embed-text has a 2048-token context window.
+# Leave headroom for special tokens the model prepends.
+DEFAULT_TOKEN_BUDGET = 1900
+
+# Sentence-ending punctuation followed by a space (or end of string).
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _estimate_tokens(text: str) -> int:
+    """Rough token estimate: 1 token ≈ 4 characters."""
+    return len(text) // 4
+
+
+def _split_on_paragraphs(text: str) -> list[str]:
+    """Split text on blank lines (paragraph boundaries)."""
+    parts = re.split(r"\n\n+", text)
+    return [p for p in parts if p.strip()]
+
+
+def _split_on_sentences(text: str) -> list[str]:
+    """Split text on sentence boundaries."""
+    parts = _SENTENCE_RE.split(text)
+    return [p for p in parts if p.strip()]
+
+
+def _merge_segments(segments: list[str], budget: int, separator: str) -> list[str]:
+    """Greedily merge small segments until the budget would be exceeded."""
+    merged: list[str] = []
+    current: list[str] = []
+    current_tokens = 0
+    sep_tokens = _estimate_tokens(separator)
+    for seg in segments:
+        seg_tokens = _estimate_tokens(seg)
+        needed = seg_tokens if not current else sep_tokens + seg_tokens
+        if current and current_tokens + needed > budget:
+            merged.append(separator.join(current))
+            current = [seg]
+            current_tokens = seg_tokens
+        else:
+            current.append(seg)
+            current_tokens += needed
+    if current:
+        merged.append(separator.join(current))
+    return merged
+
+
+def _hard_split(text: str, budget: int) -> list[str]:
+    """Split text into pieces of at most ``budget * 4`` characters."""
+    max_chars = budget * 4
+    return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
+
+
+def _resplit_chunk(chunk: Chunk, budget: int = DEFAULT_TOKEN_BUDGET) -> list[Chunk]:
+    """Re-split a chunk that exceeds *budget* tokens.
+
+    Split priority:
+    1. Paragraph breaks (blank lines)
+    2. Sentence boundaries
+    3. Hard character cut as last resort
+
+    Returns a list of chunks. If the original chunk is within budget,
+    it is returned as-is in a single-element list.
+    """
+    if _estimate_tokens(chunk.content) <= budget:
+        return [chunk]
+
+    # --- Stage 1: split on paragraphs, then merge small paragraphs back ---
+    paragraphs = _split_on_paragraphs(chunk.content)
+    pieces = _merge_segments(paragraphs, budget, "\n\n")
+
+    # --- Stage 2: any piece still over budget → split on sentences ---
+    refined: list[str] = []
+    for piece in pieces:
+        if _estimate_tokens(piece) <= budget:
+            refined.append(piece)
+        else:
+            sentences = _split_on_sentences(piece)
+            refined.extend(_merge_segments(sentences, budget, " "))
+
+    # --- Stage 3: hard cut anything still over budget ---
+    final: list[str] = []
+    for piece in refined:
+        if _estimate_tokens(piece) <= budget:
+            final.append(piece)
+        else:
+            final.extend(_hard_split(piece, budget))
+
+    # Build sub-chunks preserving all metadata
+    sub_chunks: list[Chunk] = []
+    for i, text in enumerate(final):
+        part_label = f"#part-{i + 1}"
+        sub_id = hashlib.sha256(f"{chunk.chunk_id}:{part_label}".encode()).hexdigest()[:16]
+        sub_chunks.append(
+            replace(
+                chunk,
+                content=text,
+                header_breadcrumb=f"{chunk.header_breadcrumb}{part_label}",
+                chunk_id=sub_id,
+                content_type=_detect_content_type(text),
+            )
+        )
+    return sub_chunks
 
 
 def _detect_content_type(content: str) -> str:
@@ -101,6 +205,7 @@ class MarkdownParser(DocumentParser):
                     frontmatter=fm,
                     labels=list(rule.labels),
                     chunk_id=chunk_id,
+                    section_breadcrumb=header_breadcrumb,
                     content_type=_detect_content_type(content),
                     kind="markdown_section",
                     language="markdown",
@@ -131,6 +236,9 @@ class MarkdownParser(DocumentParser):
             section_nodes = [
                 sn for sn in section_nodes if sn.properties["breadcrumb"] in surviving_breadcrumbs
             ]
+
+        # Re-split any chunk that exceeds the embedder's token budget.
+        chunks = self._resplit_oversized(chunks)
 
         self._assign_parent_ids(chunks)
 
@@ -170,6 +278,14 @@ class MarkdownParser(DocumentParser):
                     # No parent found yet; keep chunk as-is
                     merged.append(chunk)
         return merged
+
+    @staticmethod
+    def _resplit_oversized(chunks: list[Chunk], budget: int = DEFAULT_TOKEN_BUDGET) -> list[Chunk]:
+        """Re-split any chunk exceeding the token *budget*."""
+        result: list[Chunk] = []
+        for chunk in chunks:
+            result.extend(_resplit_chunk(chunk, budget))
+        return result
 
     def _assign_parent_ids(self, chunks: list[Chunk]) -> None:
         """Level-3 chunks point to the level-2 chunk they're under."""

@@ -132,6 +132,48 @@ def test_get_section(store, sample_chunks):
     assert "Token refresh" in section["content"]
 
 
+def test_get_section_aggregates_split_chunks(store):
+    """get_section() should aggregate content from split chunks sharing a section_breadcrumb."""
+    split_chunks = [
+        Chunk(
+            content="Part one content.",
+            file_path="specs/big.md",
+            header_breadcrumb="Design > Overview#part-1",
+            section_breadcrumb="Design > Overview",
+            chunk_level=2,
+            chunk_id="split_p1",
+            content_type="text",
+        ),
+        Chunk(
+            content="Part two content.",
+            file_path="specs/big.md",
+            header_breadcrumb="Design > Overview#part-2",
+            section_breadcrumb="Design > Overview",
+            chunk_level=2,
+            chunk_id="split_p2",
+            content_type="text",
+        ),
+    ]
+    fake_vectors = [[0.1] * 768 for _ in split_chunks]
+    store.add_chunks(split_chunks, fake_vectors)
+
+    section = store.get_section("specs/big.md", "Design > Overview")
+    assert section is not None
+    assert section["header_breadcrumb"] == "Design > Overview"
+    assert "Part one content." in section["content"]
+    assert "Part two content." in section["content"]
+    assert section["chunk_level"] == 2
+
+
+def test_get_section_still_works_for_non_split_chunks(store, sample_chunks):
+    """get_section() should still work for non-split chunks with section_breadcrumb == header_breadcrumb."""
+    fake_vectors = [[0.1] * 768 for _ in sample_chunks]
+    store.add_chunks(sample_chunks, fake_vectors)
+    section = store.get_section("specs/auth.md", "Auth > OAuth")
+    assert section is not None
+    assert section["header_breadcrumb"] == "Auth > OAuth"
+
+
 def test_delete_files_prevents_duplicates(store, sample_chunks):
     """Re-indexing should not duplicate chunks."""
     fake_vectors = [[0.1] * 768 for _ in sample_chunks]

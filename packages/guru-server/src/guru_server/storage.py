@@ -90,6 +90,30 @@ class VectorStore:
                         r.setdefault("parent_document_id", "")
                     self.db.drop_table(TABLE_NAME)
                     self._table = self.db.create_table(TABLE_NAME, data=existing_rows)
+                # Re-read schema names so the next evolution block sees newly added columns.
+                schema_names = set(self._table.schema.names)
+
+            # Schema evolution: add section_breadcrumb column for stable
+            # section retrieval after chunk re-splitting.
+            if "section_breadcrumb" not in schema_names and self._table.count_rows() > 0:
+                logger.info(
+                    "Extending existing LanceDB table '%s' with section_breadcrumb column",
+                    TABLE_NAME,
+                )
+                try:
+                    self._table.add_columns({"section_breadcrumb": "header_breadcrumb"})
+                except Exception as exc:
+                    logger.warning(
+                        "add_columns(section_breadcrumb) failed on table '%s' (%s) "
+                        "— re-materialising from current rows",
+                        TABLE_NAME,
+                        exc,
+                    )
+                    existing_rows = self._table.to_pandas().to_dict(orient="records")
+                    for r in existing_rows:
+                        r.setdefault("section_breadcrumb", r.get("header_breadcrumb", ""))
+                    self.db.drop_table(TABLE_NAME)
+                    self._table = self.db.create_table(TABLE_NAME, data=existing_rows)
         return self._table
 
     def add_chunks(self, chunks: list[Chunk], vectors: list[list[float]]) -> None:
@@ -110,6 +134,7 @@ class VectorStore:
                     "content": chunk.content,
                     "file_path": chunk.file_path,
                     "header_breadcrumb": chunk.header_breadcrumb,
+                    "section_breadcrumb": chunk.section_breadcrumb or chunk.header_breadcrumb,
                     "chunk_level": chunk.chunk_level,
                     "chunk_index": i,
                     "frontmatter": json.dumps(chunk.frontmatter),
@@ -232,24 +257,51 @@ class VectorStore:
         table = self._get_table()
         if table is None:
             return None
-        rows = (
-            table.search(None)
-            .where(
-                f"file_path = '{_escape_sql_string(file_path)}'"
-                f" AND header_breadcrumb = '{_escape_sql_string(header_path)}'",
-                prefilter=True,
+        fp = _escape_sql_string(file_path)
+        hp = _escape_sql_string(header_path)
+        # Try the stable section_breadcrumb first (handles split chunks).
+        # Fall back to exact header_breadcrumb match for databases that
+        # pre-date the section_breadcrumb column.
+        schema_names = set(table.schema.names)
+        if "section_breadcrumb" in schema_names:
+            rows = (
+                table.search(None)
+                .where(
+                    f"file_path = '{fp}' AND section_breadcrumb = '{hp}'",
+                    prefilter=True,
+                )
+                .select(
+                    [
+                        "file_path",
+                        "header_breadcrumb",
+                        "section_breadcrumb",
+                        "content",
+                        "chunk_level",
+                        "chunk_index",
+                    ]
+                )
+                .to_list()
             )
-            .select(["file_path", "header_breadcrumb", "content", "chunk_level"])
-            .to_list()
-        )
+        else:
+            rows = (
+                table.search(None)
+                .where(
+                    f"file_path = '{fp}' AND header_breadcrumb = '{hp}'",
+                    prefilter=True,
+                )
+                .select(["file_path", "header_breadcrumb", "content", "chunk_level"])
+                .to_list()
+            )
         if not rows:
             return None
-        row = rows[0]
+        # Sort by chunk_index for stable ordering of split parts
+        rows.sort(key=lambda r: r.get("chunk_index", 0))
+        combined_content = "\n\n".join(r["content"] for r in rows)
         return {
-            "file_path": row["file_path"],
-            "header_breadcrumb": row["header_breadcrumb"],
-            "content": row["content"],
-            "chunk_level": int(row["chunk_level"]),
+            "file_path": rows[0]["file_path"],
+            "header_breadcrumb": header_path,
+            "content": combined_content,
+            "chunk_level": int(rows[0]["chunk_level"]),
         }
 
 

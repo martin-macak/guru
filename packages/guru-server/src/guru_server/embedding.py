@@ -17,6 +17,11 @@ _MODEL_DIMENSIONS = {
     "nomic-embed-text": 768,
 }
 
+# Known context-window sizes (in tokens) for Ollama embedding models.
+_MODEL_CONTEXT_LENGTHS = {
+    "nomic-embed-text": 2048,
+}
+
 
 class OllamaEmbedder:
     def __init__(self, model: str = "nomic-embed-text", base_url: str = "http://localhost:11434"):
@@ -24,6 +29,10 @@ class OllamaEmbedder:
         self.base_url = base_url
         self.model_name = model
         self.dimensions = _MODEL_DIMENSIONS.get(model, 768)
+
+    def max_input_tokens(self) -> int:
+        """Return the maximum input token count for the configured model."""
+        return _MODEL_CONTEXT_LENGTHS.get(self.model, 2048)
 
     async def check_health(self) -> None:
         """Send a lightweight test embedding to verify Ollama is responsive.
