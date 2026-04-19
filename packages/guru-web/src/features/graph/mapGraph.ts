@@ -1,6 +1,38 @@
 import type { Edge, Node } from "reactflow";
 
 import type { GraphNeighborsPayload } from "../../lib/api/client";
+import type { GraphRoots } from "./useGraphRoots";
+
+export function rootsToFlow(roots: GraphRoots): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [
+    {
+      id: "federation",
+      data: { label: roots.federation_root.label, kind: "federation" },
+      position: { x: 0, y: 0 },
+      type: "default",
+      draggable: false,
+    },
+  ];
+  const edges: Edge[] = [];
+  const ringRadius = 240;
+  roots.kbs.forEach((kb, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(1, roots.kbs.length);
+    nodes.push({
+      id: `kb:${kb.name}`,
+      data: { label: kb.name, kind: "kb" },
+      position: { x: ringRadius * Math.cos(angle), y: ringRadius * Math.sin(angle) },
+      type: "default",
+      draggable: false,
+    });
+    edges.push({
+      id: `federation->kb:${kb.name}`,
+      source: "federation",
+      target: `kb:${kb.name}`,
+      style: { strokeDasharray: "4 4", opacity: 0.6 },
+    });
+  });
+  return { nodes, edges };
+}
 
 export type GraphNodeData = {
   label: string;

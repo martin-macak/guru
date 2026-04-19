@@ -4,6 +4,11 @@ import type { RenderOptions, RenderResult } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import type { ReactElement } from "react";
 
+export function wrapperWithQueryClient({ children }: { children: React.ReactNode }) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
 export * from "@testing-library/react";
 export { render } from "@testing-library/react";
 
