@@ -100,16 +100,51 @@ def _make_kb_node(name: str = "test-kb", project_root: str = "/tmp/test") -> Mag
 def test_app_with_seed():
     """App with 2 LanceDB docs, 1 graph doc (drift=1), graph enabled.
 
-    Also wires a mock graph_client that returns a KB node for /graph/roots.
+    Also wires a mock graph_client that returns a KB node for /graph/roots
+    and a realistic ArtifactNode for describe_artifact("doc:a.md").
     """
+    from guru_core.graph_types import ArtifactLink, ArtifactLinkKind, ArtifactNode
+
     app = _make_app_with_sync(
         lance_ids=["doc-a", "doc-b"],
         graph_ids=["doc-a"],
         graph_enabled=True,
     )
-    # Wire a mock graph client that supports /graph/roots.
+
+    # Patch the mock store to return a realistic document for a.md
+    app.state.store.get_document.side_effect = lambda path: (
+        {
+            "file_path": path,
+            "content": "Hello world this is content",
+            "frontmatter": {"tags": ["foo", "bar"]},
+            "labels": ["foo"],
+            "chunk_count": 3,
+        }
+        if path == "a.md"
+        else None
+    )
+
+    # Wire a mock graph client that supports /graph/roots and describe_artifact.
     mock_graph_client = MagicMock()
     mock_graph_client.get_kb = AsyncMock(return_value=_make_kb_node())
+    mock_graph_client.describe_artifact = AsyncMock(
+        return_value=ArtifactNode(
+            id="doc:a.md",
+            label="Document",
+            properties={"kind": "document", "name": "a.md"},
+            annotations=[],
+            links_out=[
+                ArtifactLink(
+                    from_id="doc:a.md",
+                    to_id="doc:b.md",
+                    kind=ArtifactLinkKind.IMPORTS,
+                    created_at=datetime.now(UTC),
+                    author=None,
+                )
+            ],
+            links_in=[],
+        )
+    )
     app.state.graph_client = mock_graph_client
     app.state.project_name = "test-kb"
     return app
@@ -122,6 +157,18 @@ def test_app_graph_disabled():
         lance_ids=["doc-a"],
         graph_ids=[],
         graph_enabled=False,
+    )
+    # Patch the mock store to return a realistic document for a.md
+    app.state.store.get_document.side_effect = lambda path: (
+        {
+            "file_path": path,
+            "content": "Hello world",
+            "frontmatter": {},
+            "labels": [],
+            "chunk_count": 1,
+        }
+        if path == "a.md"
+        else None
     )
     # graph_client is None when disabled
     app.state.graph_client = None
