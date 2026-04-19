@@ -1,8 +1,20 @@
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, constr
 
+from guru_core.graph_types import DocumentSearchHit
 from guru_server.api.models import DocumentListItem, DocumentOut, SectionOut
 
 router = APIRouter()
+
+
+class DocumentSearchBody(BaseModel):
+    query: constr(min_length=1, max_length=500)  # type: ignore[valid-type]
+    limit: int = Field(20, ge=1, le=100)
+
+
+class DocumentSearchResponse(BaseModel):
+    hits: list[DocumentSearchHit]
+
 
 _ALLOWED_DOCUMENT_FILTERS = {"labels"}
 
@@ -52,3 +64,29 @@ async def get_document(path: str, request: Request):
     if doc is None:
         raise HTTPException(status_code=404, detail=f"Document not found: {path}")
     return doc
+
+
+@router.post("/documents/search", response_model=DocumentSearchResponse)
+async def documents_search(body: DocumentSearchBody, request: Request) -> DocumentSearchResponse:
+    store = request.app.state.store
+    embedder = request.app.state.embedder
+
+    query_vector = await embedder.embed(body.query)
+    rows = store.search(query_vector=query_vector, n_results=body.limit)
+
+    hits: list[DocumentSearchHit] = []
+    seen_paths: set[str] = set()
+    for row in rows:
+        path = row.get("file_path") or row.get("path", "")
+        if path in seen_paths:
+            continue
+        seen_paths.add(path)
+        hits.append(
+            DocumentSearchHit(
+                path=path,
+                title=row.get("title") or row.get("header_breadcrumb") or path,
+                excerpt=row.get("excerpt") or row.get("content", "")[:200],
+                score=float(row["score"]),
+            )
+        )
+    return DocumentSearchResponse(hits=hits)
