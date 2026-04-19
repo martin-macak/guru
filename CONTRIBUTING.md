@@ -1,5 +1,19 @@
 # Contributing to Guru
 
+## Reporting Issues
+
+**Issue templates are mandatory.** Blank issues are disabled. Always use the correct template:
+
+| Template | When to use | Required fields |
+|---|---|---|
+| **Bug Report** | Unexpected behaviour, crashes, wrong output | Version (from `uv run guru --version`, e.g. `0.3.1`) · Component · Description · Steps · Expected · Actual |
+| **Enhancement** | New feature request or improvement | Component · Problem/Motivation · Proposed Solution |
+
+Get your version with `uv run guru --version` or `dunamai from git`.  
+Version strings must follow PEP 440 — this matches the `dunamai`/`uv-dynamic-versioning` output used in CI, with `uv run guru --version` as the source of truth.
+
+Issue titles must follow the naming convention: `<type>: <description>` (e.g. `fix: search returns empty on re-index`).
+
 ## Development setup
 
 ```bash
