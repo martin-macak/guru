@@ -46,16 +46,17 @@ def _merge_segments(segments: list[str], budget: int, separator: str) -> list[st
     merged: list[str] = []
     current: list[str] = []
     current_tokens = 0
+    sep_tokens = _estimate_tokens(separator)
     for seg in segments:
         seg_tokens = _estimate_tokens(seg)
-        # If adding this segment would exceed budget, flush current
-        if current and current_tokens + _estimate_tokens(separator) + seg_tokens > budget:
+        needed = seg_tokens if not current else sep_tokens + seg_tokens
+        if current and current_tokens + needed > budget:
             merged.append(separator.join(current))
             current = [seg]
             current_tokens = seg_tokens
         else:
             current.append(seg)
-            current_tokens += (0 if not current[:-1] else _estimate_tokens(separator)) + seg_tokens
+            current_tokens += needed
     if current:
         merged.append(separator.join(current))
     return merged

@@ -475,7 +475,7 @@ def test_resplit_preserves_header_breadcrumb_prefix():
     assert len(result) >= 2
     for i, sub in enumerate(result):
         assert sub.header_breadcrumb.startswith("Root > Section")
-        # All but possibly the first should have #part-N
+        # All sub-chunks get #part-N numbering starting from 1
         if len(result) > 1:
             assert f"#part-{i + 1}" in sub.header_breadcrumb
 
