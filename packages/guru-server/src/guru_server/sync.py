@@ -143,6 +143,8 @@ class GraphSyncAdapter:
         self._client = client
 
     def is_enabled(self) -> bool:
+        if self._client is None:
+            return False
         return bool(self._client.is_available())
 
     def list_document_node_ids(self, kb: str) -> list[str]:
