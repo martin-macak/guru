@@ -119,7 +119,8 @@ When asked to track a bug, file a defect, or create an enhancement issue, agents
 
 The skill enforces all mandatory template and field requirements. Key rules:
 - Blank issues are disabled — always use the `bug_report` or `enhancement` template.
-- Bug Reports require a valid semver `version` string (never blank or "unknown").
+- Bug Reports require a valid PEP 440 `version` string (never blank or "unknown"), including
+  valid post-release forms such as `1.2.3.post1`.
 - Both templates require a `component` selection and a title in `<type>: <description>` form.
 
 ## Naming Conventions

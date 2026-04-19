@@ -35,7 +35,7 @@ better → Enhancement.
 | Field | How to obtain / what to write |
 |---|---|
 | **Title** | `fix: <short description>` — e.g. `fix: search returns empty after re-index` |
-| **version** | Run `uv run guru --version` or `dunamai from git`. Must be a semver string (e.g. `0.3.1`, `1.0.0`, `2.1.0-alpha.1`). **Never** leave blank or write "unknown". |
+| **version** | Run `uv run guru --version` and copy the output verbatim. Must be a PEP 440 string (e.g. `0.3.1`, `1.0.0`, `2.1.0a1`, `2.1.0.dev1`, `1.2.3.post1`). **Never** leave blank or write "unknown". |
 | **component** | Pick one: `guru-server` · `guru-mcp` · `guru-cli / TUI` · `guru-core` · `guru-graph` · `Other / Unknown` |
 | **description** | A clear, concise description of the bug. |
 | **steps** | Minimal numbered steps to reproduce (start from a clean state). |
