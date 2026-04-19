@@ -93,3 +93,24 @@ class SyncService:
                 last_reconciled_at=self._last_reconciled_at,
                 graph_enabled=True,
             )
+
+
+class LanceDocumentAdapter:
+    """Adapts the existing guru-server document store to the LanceStore protocol.
+
+    The store-side API exposes a richer row shape; this adapter collapses it
+    to the `(id, title, path)` triple that `SyncService` needs to mirror into
+    the graph.
+    """
+
+    def __init__(self, *, store) -> None:
+        self._store = store
+
+    def list_document_ids(self) -> list[str]:
+        return [row["path"] for row in self._store.list_documents()]
+
+    def get_document(self, doc_id: str) -> dict:
+        row = self._store.get_document(doc_id)
+        if row is None:
+            raise KeyError(doc_id)
+        return {"id": row["path"], "title": row["title"], "path": row["path"]}
