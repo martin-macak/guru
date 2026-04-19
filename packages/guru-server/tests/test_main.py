@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from guru_server.main import _resolve_cache_db_path
+from guru_server.bootstrap import resolve_cache_db_path
 
 
 class TestMainArgParsing:
@@ -44,13 +44,13 @@ class TestMainArgParsing:
 
 def test_resolve_cache_db_path_uses_env_var(tmp_path, monkeypatch):
     monkeypatch.setenv("GURU_EMBED_CACHE_PATH", str(tmp_path / "my_cache.db"))
-    result = _resolve_cache_db_path()
+    result = resolve_cache_db_path()
     assert result == tmp_path / "my_cache.db"
 
 
 def test_resolve_cache_db_path_uses_platformdirs_when_no_env(monkeypatch):
     monkeypatch.delenv("GURU_EMBED_CACHE_PATH", raising=False)
-    result = _resolve_cache_db_path()
+    result = resolve_cache_db_path()
     assert "guru" in str(result).lower()
     assert str(result).endswith("embeddings.db")
 
