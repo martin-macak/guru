@@ -16,6 +16,22 @@ from guru_server.storage import VectorStore
 logger = logging.getLogger(__name__)
 
 
+def _find_repo_root() -> Path:
+    """Walk up from this file to the first ancestor containing `packages/`."""
+    here = Path(__file__).resolve()
+    for candidate in [here, *here.parents]:
+        if (candidate / "packages").is_dir():
+            return candidate
+    raise RuntimeError("Could not locate repository root (no ancestor contains packages/)")
+
+
+def _resolve_reload_dirs() -> list[str]:
+    """Return absolute paths to source trees uvicorn should watch."""
+    repo_root = _find_repo_root()
+    packages = ["guru-server", "guru-core", "guru-graph"]
+    return [str(repo_root / "packages" / name / "src") for name in packages]
+
+
 def create_dev_app() -> FastAPI:
     """Factory used by uvicorn's reloader worker.
 

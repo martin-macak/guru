@@ -52,3 +52,17 @@ def test_create_dev_app_raises_when_guru_dir_missing(tmp_path: Path, monkeypatch
 
     with pytest.raises(RuntimeError, match=r"\.guru"):
         create_dev_app()
+
+
+def test_resolve_reload_dirs_returns_absolute_paths_for_known_packages():
+    """Returns absolute paths to guru-server, guru-core, guru-graph src dirs."""
+    from guru_server.dev import _resolve_reload_dirs
+
+    dirs = _resolve_reload_dirs()
+    names = [Path(p).parent.name for p in dirs]  # .../packages/<pkg>/src
+    assert "guru-server" in names
+    assert "guru-core" in names
+    assert "guru-graph" in names
+    for p in dirs:
+        assert Path(p).is_absolute()
+        assert Path(p).is_dir()
