@@ -264,6 +264,7 @@ def create_app(
             embed_cache=embed_cache,
             parser_registry=parser_registry,
             graph_client=app.state.graph_client,
+            sync=app.state.sync,
         )
     else:
         app.state.indexer = None

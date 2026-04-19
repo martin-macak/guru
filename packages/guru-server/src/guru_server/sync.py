@@ -61,6 +61,21 @@ class SyncService:
             graph_enabled=True,
         )
 
+    def graph_enabled(self) -> bool:
+        return self._graph.is_enabled()
+
+    def upsert_one(self, document: dict) -> None:
+        if not self._graph.is_enabled():
+            return
+        with self._lock:
+            self._graph.upsert_document_node(self._kb, document)
+
+    def delete_one(self, doc_id: str) -> None:
+        if not self._graph.is_enabled():
+            return
+        with self._lock:
+            self._graph.delete_document_node(self._kb, doc_id)
+
     def reconcile(self) -> SyncStatus:
         if not self._graph.is_enabled():
             raise RuntimeError("cannot reconcile: graph is disabled")

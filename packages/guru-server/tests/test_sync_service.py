@@ -92,6 +92,30 @@ def test_reconcile_raises_when_graph_disabled():
         svc.reconcile()
 
 
+def test_upsert_one_forwards_when_enabled():
+    lance = FakeLanceStore(ids=[])
+    graph = FakeGraphBackend(kb="local")
+    svc = SyncService(kb="local", lance=lance, graph=graph)
+    svc.upsert_one({"id": "a.md", "title": "A", "path": "a.md"})
+    assert graph.upserts == ["a.md"]
+
+
+def test_upsert_one_noop_when_disabled():
+    lance = FakeLanceStore(ids=[])
+    graph = FakeGraphBackend(kb="local", enabled=False)
+    svc = SyncService(kb="local", lance=lance, graph=graph)
+    svc.upsert_one({"id": "a.md", "title": "A", "path": "a.md"})
+    assert graph.upserts == []
+
+
+def test_delete_one_forwards_when_enabled():
+    lance = FakeLanceStore(ids=[])
+    graph = FakeGraphBackend(kb="local", ids=["a.md"])
+    svc = SyncService(kb="local", lance=lance, graph=graph)
+    svc.delete_one("a.md")
+    assert graph.deletes == ["a.md"]
+
+
 def test_reconcile_is_serialised_per_kb():
     lance = FakeLanceStore(ids=["a", "b"])
     graph = FakeGraphBackend(kb="local")
