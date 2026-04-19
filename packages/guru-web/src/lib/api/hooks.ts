@@ -10,6 +10,26 @@ export function useBootQuery() {
   });
 }
 
+export interface SyncStatus {
+  lancedb_count: number;
+  graph_count: number;
+  drift: number;
+  last_reconciled_at: string | null;
+  graph_enabled: boolean;
+}
+
+export function useSyncStatus() {
+  return useQuery<SyncStatus>({
+    queryKey: ["sync", "status"],
+    queryFn: async () => apiClient.get<SyncStatus>("/sync/status"),
+    refetchInterval: 10_000,
+  });
+}
+
+export async function reconcileSync(): Promise<SyncStatus> {
+  return apiClient.post<SyncStatus>("/sync/reconcile", {});
+}
+
 export interface DocumentListItem {
   path: string;
   title: string;
