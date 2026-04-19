@@ -6,6 +6,7 @@ import pytest
 
 from guru_core.types import ChunkingConfig, MatchConfig, Rule
 from guru_server.ingestion import Chunk, DocumentParser, MarkdownParser
+from guru_server.ingestion.markdown import DEFAULT_TOKEN_BUDGET, _estimate_tokens, _resplit_chunk
 
 SAMPLE_MD = """\
 ---
@@ -411,3 +412,200 @@ def test_frontmatter_with_dates_is_json_serializable(
         restored = json.loads(serialized)
         assert restored["title"] == "Change Request"
         assert restored["date"] == "2025-01-15"
+
+
+# --- Token estimation ---
+
+
+def test_estimate_tokens_rough_heuristic():
+    """_estimate_tokens uses chars/4 as a rough heuristic."""
+    assert _estimate_tokens("") == 0
+    assert _estimate_tokens("a" * 400) == 100  # 400 chars / 4
+    assert _estimate_tokens("hello world") == 2  # 11 chars / 4 = 2 (int division)
+
+
+# --- _resplit_chunk ---
+
+
+def test_resplit_chunk_returns_original_when_under_budget():
+    """A chunk under the budget should not be split."""
+    chunk = Chunk(
+        content="Short content",
+        file_path="/a.md",
+        header_breadcrumb="Section A",
+        chunk_level=2,
+        chunk_id="abc123",
+    )
+    result = _resplit_chunk(chunk, budget=1900)
+    assert len(result) == 1
+    assert result[0] is chunk  # unchanged
+
+
+def test_resplit_chunk_splits_on_paragraph_breaks():
+    """Paragraphs separated by blank lines should be split into sub-chunks."""
+    # Each paragraph ~200 chars = ~50 tokens. 4 paragraphs = ~200 tokens.
+    # With budget=60, each paragraph fits alone but not two together.
+    para = "A" * 200
+    content = f"{para}\n\n{para}\n\n{para}\n\n{para}"
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Big Section",
+        chunk_level=2,
+        chunk_id="xyz",
+    )
+    result = _resplit_chunk(chunk, budget=60)
+    assert len(result) >= 2
+    for sub in result:
+        assert _estimate_tokens(sub.content) <= 60
+
+
+def test_resplit_preserves_header_breadcrumb_prefix():
+    """Sub-chunks must carry the parent's header_breadcrumb with #part-N suffix."""
+    para = "B" * 200
+    content = f"{para}\n\n{para}\n\n{para}"
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Root > Section",
+        chunk_level=2,
+        chunk_id="orig",
+    )
+    result = _resplit_chunk(chunk, budget=60)
+    assert len(result) >= 2
+    for i, sub in enumerate(result):
+        assert sub.header_breadcrumb.startswith("Root > Section")
+        # All but possibly the first should have #part-N
+        if len(result) > 1:
+            assert f"#part-{i + 1}" in sub.header_breadcrumb
+
+
+def test_resplit_chunk_ids_are_unique():
+    """All sub-chunks must have unique chunk_ids."""
+    para = "C" * 200
+    content = f"{para}\n\n{para}\n\n{para}"
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Section",
+        chunk_level=2,
+        chunk_id="orig",
+    )
+    result = _resplit_chunk(chunk, budget=60)
+    ids = [c.chunk_id for c in result]
+    assert len(ids) == len(set(ids)), f"Duplicate IDs: {ids}"
+
+
+def test_resplit_preserves_metadata():
+    """Sub-chunks must preserve frontmatter, labels, kind, language, etc."""
+    para = "D" * 200
+    content = f"{para}\n\n{para}"
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Section",
+        chunk_level=2,
+        chunk_id="orig",
+        frontmatter={"title": "Test"},
+        labels=["docs"],
+        kind="markdown_section",
+        language="markdown",
+        artifact_qualname="kb::doc::Section",
+        parent_document_id="kb::doc",
+    )
+    result = _resplit_chunk(chunk, budget=60)
+    assert len(result) >= 2
+    for sub in result:
+        assert sub.frontmatter == {"title": "Test"}
+        assert sub.labels == ["docs"]
+        assert sub.kind == "markdown_section"
+        assert sub.language == "markdown"
+        assert sub.parent_document_id == "kb::doc"
+        assert sub.file_path == "/a.md"
+        assert sub.chunk_level == 2
+
+
+def test_resplit_falls_back_to_sentence_split():
+    """When a single paragraph exceeds the budget, split on sentences."""
+    # One long paragraph with multiple sentences, no blank-line breaks.
+    sentences = [f"This is sentence number {i}." for i in range(80)]
+    content = " ".join(sentences)  # ~2400 chars = ~600 tokens
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Section",
+        chunk_level=2,
+        chunk_id="orig",
+    )
+    result = _resplit_chunk(chunk, budget=200)
+    assert len(result) >= 2
+    for sub in result:
+        assert _estimate_tokens(sub.content) <= 200
+
+
+def test_resplit_hard_cut_as_last_resort():
+    """When there are no paragraph or sentence boundaries, hard-cut."""
+    # A single continuous string with no spaces, periods, or newlines
+    content = "X" * 8000  # 2000 tokens at 4 chars/token
+    chunk = Chunk(
+        content=content,
+        file_path="/a.md",
+        header_breadcrumb="Section",
+        chunk_level=2,
+        chunk_id="orig",
+    )
+    result = _resplit_chunk(chunk, budget=500)
+    assert len(result) >= 2
+    for sub in result:
+        assert _estimate_tokens(sub.content) <= 500
+    # All content is preserved
+    assert "".join(sub.content for sub in result) == content
+
+
+# --- Full parse with oversized section ---
+
+
+SAMPLE_MD_OVERSIZED = (
+    "# Big Doc\n\n"
+    "## Huge Section\n\n"
+    + ("Lorem ipsum dolor sit amet. " * 400)  # ~10800 chars = ~2700 tokens
+    + "\n\n## Small Section\n\nJust a few words.\n"
+)
+
+
+def test_parse_oversized_section_resplit(parser: MarkdownParser, tmp_path: Path, rule: Rule):
+    """A section exceeding the default token budget must be re-split."""
+    p = tmp_path / "big.md"
+    p.write_text(SAMPLE_MD_OVERSIZED, encoding="utf-8")
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name)
+    chunks = result.chunks
+    for c in chunks:
+        # No chunk should exceed the default budget
+        assert _estimate_tokens(c.content) <= DEFAULT_TOKEN_BUDGET, (
+            f"Chunk '{c.header_breadcrumb}' has ~{_estimate_tokens(c.content)} tokens, "
+            f"exceeding budget {DEFAULT_TOKEN_BUDGET}"
+        )
+
+
+def test_parse_oversized_section_breadcrumb_preserved(
+    parser: MarkdownParser, tmp_path: Path, rule: Rule
+):
+    """Re-split sub-chunks must carry the original header_breadcrumb prefix."""
+    p = tmp_path / "big.md"
+    p.write_text(SAMPLE_MD_OVERSIZED, encoding="utf-8")
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name)
+    huge_chunks = [c for c in result.chunks if "Huge Section" in c.header_breadcrumb]
+    assert len(huge_chunks) >= 2, "Expected the huge section to be split into 2+ chunks"
+    for c in huge_chunks:
+        assert c.header_breadcrumb.startswith("Big Doc > Huge Section")
+
+
+def test_parse_oversized_chunk_ids_unique(
+    parser: MarkdownParser, tmp_path: Path, rule: Rule
+):
+    """All chunk IDs must be unique after re-splitting."""
+    p = tmp_path / "big.md"
+    p.write_text(SAMPLE_MD_OVERSIZED, encoding="utf-8")
+    result = parser.parse(p, rule, kb_name="test", rel_path=p.name)
+    ids = [c.chunk_id for c in result.chunks]
+    assert len(ids) == len(set(ids)), f"Duplicate chunk IDs: {ids}"
