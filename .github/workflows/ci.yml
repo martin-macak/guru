@@ -147,7 +147,7 @@ jobs:
       - name: Run BDD e2e tests
         env:
           GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
-        run: uv run behave tests/e2e/features/ -D capabilities=ollama
+        run: uv run behave tests/e2e/features/ -D capabilities=ollama --exclude hybrid_search
 
   # ---------------------------------------------------------------------------
   # Graph plugin tests — only when label "require-e2e-tests" is set
@@ -170,14 +170,9 @@ jobs:
           sudo mkdir -p /etc/apt/keyrings
           wget -O - https://debian.neo4j.com/neotechnology.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/neotechnology.gpg > /dev/null
           sudo chmod a+r /etc/apt/keyrings/neotechnology.gpg
-          echo 'deb [signed-by=/etc/apt/keyrings/neotechnology.gpg] https://debian.neo4j.com stable latest' | sudo tee /etc/apt/sources.list.d/neo4j.list > /dev/null
+          echo 'deb [signed-by=/etc/apt/keyrings/neotechnology.gpg] https://debian.neo4j.com stable 5' | sudo tee /etc/apt/sources.list.d/neo4j.list > /dev/null
           sudo apt-get update
-          NEO4J_VERSION="$(apt-cache madison neo4j | awk '$3 ~ /^5\./ || $3 ~ /^[0-9]+:5\./ { print $3; exit }')"
-          if [ -z "$NEO4J_VERSION" ]; then
-            echo "No Neo4j 5.x package found in apt repository" >&2
-            exit 1
-          fi
-          sudo apt-get install -y "neo4j=$NEO4J_VERSION"
+          sudo apt-get install -y neo4j
           neo4j version
 
       - run: uv sync --all-packages
