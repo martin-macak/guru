@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 
 [project.scripts]
 guru-server = "guru_server.main:main"
+guru-server-dev = "guru_server.dev:main"
 
 [tool.uv.sources]
 guru-core = { workspace = true }
