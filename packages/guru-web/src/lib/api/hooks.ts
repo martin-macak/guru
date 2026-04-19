@@ -54,3 +54,12 @@ export function useDocument(path: string | null) {
     enabled: !!path,
   });
 }
+
+export interface GraphQueryResult {
+  nodes: { id: string; label: string; kind: string; kb?: string }[];
+  edges: { source: string; target: string; kind: string }[];
+}
+
+export async function runGraphQuery(cypher: string): Promise<GraphQueryResult> {
+  return apiClient.post<GraphQueryResult>("/graph/query", { cypher });
+}

@@ -44,4 +44,36 @@ describe("useGraphCanvas", () => {
     const ids = result.current.nodes.map((n) => n.id).sort();
     expect(ids).toEqual(["federation", "kb:local"]);
   });
+
+  it("replaceProjection keeps roots and swaps extras", async () => {
+    const { result } = renderHook(() => useGraphCanvas(rootsPayload), { wrapper: wrapperWithQueryClient });
+    await act(async () => {
+      result.current.replaceProjection({
+        nodes: [
+          { id: "doc:x", label: "X", kind: "document", kb: "local" },
+          { id: "federation", label: "F", kind: "federation" },
+        ],
+        edges: [],
+      });
+    });
+    expect(result.current.nodes.map((n) => n.id).sort()).toEqual(["doc:x", "federation", "kb:local"]);
+  });
+
+  it("restore rewinds to prior canvas state", async () => {
+    const { result } = renderHook(() => useGraphCanvas(rootsPayload), { wrapper: wrapperWithQueryClient });
+    await act(async () => {
+      result.current.mergeNeighbors("doc:a", {
+        nodes: [{ id: "doc:a", label: "A", kind: "document", kb: "local" }],
+        edges: [],
+      });
+    });
+    const snapshot = { nodes: result.current.nodes, edges: result.current.edges };
+    await act(async () => {
+      result.current.replaceProjection({ nodes: [{ id: "doc:x", label: "X", kind: "document", kb: "local" }], edges: [] });
+    });
+    expect(result.current.nodes.find((n) => n.id === "doc:x")).toBeDefined();
+    await act(async () => result.current.restore(snapshot));
+    expect(result.current.nodes.find((n) => n.id === "doc:a")).toBeDefined();
+    expect(result.current.nodes.find((n) => n.id === "doc:x")).toBeUndefined();
+  });
 });

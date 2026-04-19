@@ -46,6 +46,33 @@ export function useGraphCanvas(roots: GraphRoots | undefined) {
     setSelectedId(null);
   }, []);
 
+  const replaceProjection = useCallback((payload: NeighborsPayload) => {
+    setExtraNodes(
+      payload.nodes
+        .filter((n) => n.id !== "federation" && !n.id.startsWith("kb:"))
+        .map((n, i) => ({
+          id: n.id,
+          data: { label: n.label, kind: n.kind, kb: n.kb },
+          position: { x: 400 + 120 * Math.cos(i), y: 120 * Math.sin(i) },
+          type: "default",
+        })),
+    );
+    setExtraEdges(
+      payload.edges.map((e) => ({
+        id: `q:${e.source}->${e.target}`,
+        source: e.source,
+        target: e.target,
+        label: e.kind,
+      })),
+    );
+  }, []);
+
+  const restore = useCallback((snapshot: { nodes: Node[]; edges: Edge[] }) => {
+    const isRoot = (id: string) => id === "federation" || id.startsWith("kb:");
+    setExtraNodes(snapshot.nodes.filter((n) => !isRoot(n.id)));
+    setExtraEdges(snapshot.edges.filter((e) => !isRoot(e.source) && !isRoot(e.target)));
+  }, []);
+
   return {
     nodes: [...rootsFlow.nodes, ...extraNodes],
     edges: [...rootsFlow.edges, ...extraEdges],
@@ -53,5 +80,7 @@ export function useGraphCanvas(roots: GraphRoots | undefined) {
     setSelectedId,
     mergeNeighbors,
     clear,
+    replaceProjection,
+    restore,
   };
 }
