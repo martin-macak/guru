@@ -17,13 +17,13 @@ export type BootPayload = {
 
 export type RuntimeStatusSnapshot = Pick<BootPayload, "project" | "web" | "graph">;
 
-export type GraphArtifactNode = {
+export type GraphDocumentNode = {
   id: string;
   label: string;
   properties: Record<string, unknown>;
 };
 
-export type GraphArtifactEdge = {
+export type GraphDocumentEdge = {
   from_id: string;
   to_id: string;
   rel_type: "CONTAINS" | "RELATES";
@@ -33,8 +33,8 @@ export type GraphArtifactEdge = {
 
 export type GraphNeighborsPayload = {
   node_id: string;
-  nodes: GraphArtifactNode[];
-  edges: GraphArtifactEdge[];
+  nodes: GraphDocumentNode[];
+  edges: GraphDocumentEdge[];
 };
 
 export type GraphDisabledPayload = {

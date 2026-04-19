@@ -122,13 +122,19 @@ class LanceDocumentAdapter:
         self._store = store
 
     def list_document_ids(self) -> list[str]:
-        return [row["path"] for row in self._store.list_documents()]
+        return [row["file_path"] for row in self._store.list_documents()]
 
     def get_document(self, doc_id: str) -> dict:
         row = self._store.get_document(doc_id)
         if row is None:
             raise KeyError(doc_id)
-        return {"id": row["path"], "title": row["title"], "path": row["path"]}
+        frontmatter = row.get("frontmatter") or {}
+        title = frontmatter.get("title") or row["file_path"]
+        return {
+            "id": row["file_path"],
+            "title": title,
+            "path": row["file_path"],
+        }
 
 
 class GraphSyncAdapter:
