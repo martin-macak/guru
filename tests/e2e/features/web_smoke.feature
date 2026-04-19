@@ -1,4 +1,4 @@
-@web @xfail_until_phase_3
+@web
 Feature: Web smoke
 
   Scenario: Workbench serves the boot payload

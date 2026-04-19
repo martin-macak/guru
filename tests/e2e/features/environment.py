@@ -128,6 +128,38 @@ Internal services authenticate via long-lived API keys.
     return tmp_path
 
 
+def _create_empty_web_project() -> Path:
+    """Empty project for @web features — no pre-seeded docs.
+
+    The feature steps write their own documents into ``docs/`` (which matches
+    the ``docs/**/*.md`` rule). Keeping the fixture empty gives the web BDD
+    scenarios a clean, minimal document list.
+    """
+    tmp_path = Path(tempfile.mkdtemp(prefix="g_", dir="/tmp"))
+
+    guru_dir = tmp_path / ".guru"
+    guru_dir.mkdir()
+    (guru_dir / "db").mkdir()
+
+    config = {
+        "version": 1,
+        "rules": [
+            {
+                "ruleName": "docs",
+                "match": {"glob": "docs/**/*.md"},
+                "labels": ["documentation"],
+            },
+        ],
+        "graph": {"enabled": False},
+    }
+    (tmp_path / ".guru.json").write_text(json.dumps(config, indent=2))
+
+    # Pre-create docs/ so the file watcher / indexer has somewhere to look.
+    (tmp_path / "docs").mkdir()
+
+    return tmp_path
+
+
 def _create_semantic_project() -> Path:
     """Project with topically distinct documents for semantic search tests.
 
@@ -404,6 +436,80 @@ def _start_server(
         time.sleep(0.1)
     else:
         raise RuntimeError("guru-server did not start within 10 s")
+
+    return server, thread
+
+
+def _start_web_server(
+    project_dir: Path, embedder: OllamaEmbedder, tcp_port: int
+) -> tuple[uvicorn.Server, threading.Thread]:
+    """Start a guru-server that listens on BOTH UDS and a TCP port.
+
+    The UDS socket is used by the CLI steps; the TCP port is the base URL
+    that Playwright navigates to so the browser can load the web UI.
+    The web bundle (static assets) must already be built and present in
+    guru_server/web_assets/ (or packages/guru-web/dist/).
+    """
+    import socket as _socket
+
+    socket_path = str(project_dir / ".guru" / "guru.sock")
+    pid_path = project_dir / ".guru" / "guru.pid"
+
+    config = resolve_config(project_root=project_dir)
+    store = VectorStore(db_path=str(project_dir / ".guru" / "db"))
+
+    cache_path = os.environ.get("GURU_EMBED_CACHE_PATH")
+    embed_cache = EmbeddingCache(db_path=Path(cache_path)) if cache_path else None
+
+    app = create_app(
+        store=store,
+        embedder=embedder,
+        config=config,
+        project_root=str(project_dir),
+        auto_index=False,
+        embed_cache=embed_cache,
+    )
+
+    # Build a list of pre-bound sockets: one UDS for CLI tools, one TCP for the browser.
+    uds_sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    uds_sock.bind(socket_path)
+    uds_sock.listen(2048)
+
+    tcp_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    tcp_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    tcp_sock.bind(("127.0.0.1", tcp_port))
+    tcp_sock.listen(2048)
+
+    uvi_config = uvicorn.Config(app, log_level="warning")
+    server = uvicorn.Server(uvi_config)
+
+    # Pass both pre-bound sockets to uvicorn. When sockets are provided,
+    # uvicorn uses them directly (no rebinding) — one UDS for CLI/UDS steps,
+    # one TCP for the Playwright browser.
+    thread = threading.Thread(
+        target=lambda: server.run(sockets=[uds_sock, tcp_sock]),
+        daemon=True,
+    )
+    thread.start()
+
+    pid_path.write_text(str(os.getpid()))
+
+    # Wait until the TCP listener is accepting requests.
+    # The UDS socket file already exists (bound above), but the event loop
+    # may not yet be running. Poll the TCP health endpoint instead.
+    import httpx as _httpx
+
+    deadline = time.monotonic() + 15.0
+    while time.monotonic() < deadline:
+        try:
+            resp = _httpx.get(f"http://127.0.0.1:{tcp_port}/web/boot", timeout=2.0)
+            if resp.status_code == 200:
+                break
+        except Exception:
+            pass
+        time.sleep(0.1)
+    else:
+        raise RuntimeError(f"guru-server (web/TCP) did not start within 15 s on port {tcp_port}")
 
     return server, thread
 
@@ -763,22 +869,32 @@ def before_feature(context, feature):
     elif "gitignore_project" in feature.tags:
         context.project_dir = _create_gitignore_project()
         context.embedder = _make_fake_embedder()
+    elif "web" in feature.tags:
+        # @web features seed their own documents via steps — use an empty
+        # project so the list isn't polluted by unrelated fixture files.
+        context.project_dir = _create_empty_web_project()
+        context.embedder = _make_fake_embedder()
     else:
         context.project_dir = _create_standard_project()
         context.embedder = _make_fake_embedder()
 
-    context.server, context.server_thread = _start_server(context.project_dir, context.embedder)
-
-    # Provide a base URL for @web scenarios. The web UI will be served over TCP
-    # in Phase 3; for now we pick a free port so context.server_url is always
-    # set (the @xfail_until_phase_3 tag keeps web scenarios skipped until then).
     if "web" in feature.tags:
+        # @web features need the server to listen on TCP so the browser can
+        # reach the web UI. We start a dual-socket server (UDS + TCP) so that
+        # both CLI/UDS steps and Playwright work against the same instance.
         import socket as _socket
 
         with _socket.socket() as _sock:
             _sock.bind(("127.0.0.1", 0))
             _web_port = _sock.getsockname()[1]
         context.server_url = f"http://127.0.0.1:{_web_port}"
+        context.server, context.server_thread = _start_web_server(
+            context.project_dir, context.embedder, _web_port
+        )
+    else:
+        context.server, context.server_thread = _start_server(
+            context.project_dir, context.embedder
+        )
 
 
 def after_feature(context, feature):
