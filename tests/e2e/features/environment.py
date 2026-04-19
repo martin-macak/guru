@@ -752,17 +752,22 @@ def _wait_for_index(project_or_context, timeout: float = 30.0) -> None:
     socket_path = str(project_dir / ".guru" / "guru.sock")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            if context_client is not None:
-                data = context_client.get("/status").json()
-            else:
+        if context_client is not None:
+            # In-process TestClient: no connection errors possible, so let any
+            # unexpected status or JSON decode failure propagate immediately.
+            data = context_client.get("/status").json()
+            if data.get("current_job") is None:
+                return
+        else:
+            try:
                 transport = httpx.HTTPTransport(uds=socket_path)
                 with httpx.Client(transport=transport, timeout=5.0) as client:
                     data = client.get("http://localhost/status").json()
-            if data.get("current_job") is None:
-                return
-        except Exception:
-            pass
+                if data.get("current_job") is None:
+                    return
+            except (httpx.ConnectError, httpx.RemoteProtocolError, OSError):
+                # Transient connection error — server may still be starting.
+                pass
         time.sleep(0.3)
     raise RuntimeError("Index did not complete within timeout")
 

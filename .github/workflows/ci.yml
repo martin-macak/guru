@@ -172,7 +172,12 @@ jobs:
           sudo chmod a+r /etc/apt/keyrings/neotechnology.gpg
           echo 'deb [signed-by=/etc/apt/keyrings/neotechnology.gpg] https://debian.neo4j.com stable latest' | sudo tee /etc/apt/sources.list.d/neo4j.list > /dev/null
           sudo apt-get update
-          sudo apt-get install -y neo4j
+          NEO4J_VERSION="$(apt-cache madison neo4j | awk '$3 ~ /^5\./ || $3 ~ /^[0-9]+:5\./ { print $3; exit }')"
+          if [ -z "$NEO4J_VERSION" ]; then
+            echo "No Neo4j 5.x package found in apt repository" >&2
+            exit 1
+          fi
+          sudo apt-get install -y "neo4j=$NEO4J_VERSION"
           neo4j version
 
       - run: uv sync --all-packages

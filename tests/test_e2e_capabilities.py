@@ -43,19 +43,22 @@ def test_neo4j_capability_start_uses_native_process(monkeypatch, tmp_path):
 
 
 def test_neo4j_capability_stop_uses_native_process(monkeypatch):
-    stopped = []
-    runtime = SimpleNamespace(process=MagicMock())
+    import os
+    import signal
 
-    def fake_stop_neo4j(process):
-        stopped.append(process)
+    killed_pgroups: list[tuple[int, int]] = []
+    proc = MagicMock()
+    proc.pid = 12345
+    proc.poll.return_value = None  # simulate a running process
 
-    monkeypatch.setattr(guru_graph.neo4j_process, "stop_neo4j", fake_stop_neo4j)
-    monkeypatch.setattr(capabilities, "_neo4j_runtime", runtime, raising=False)
+    monkeypatch.setattr(os, "killpg", lambda pgid, sig: killed_pgroups.append((pgid, sig)))
+    monkeypatch.setattr(capabilities, "_neo4j_runtime", SimpleNamespace(process=proc), raising=False)
 
     capabilities._neo4j_stop()
 
-    assert stopped == [runtime.process]
     assert capabilities._neo4j_runtime is None
+    # The whole process group (identified by proc.pid) must have received SIGTERM.
+    assert killed_pgroups and killed_pgroups[0] == (proc.pid, signal.SIGTERM)
 
 
 @pytest.mark.parametrize("fn", [capabilities._neo4j_start, capabilities._neo4j_stop])

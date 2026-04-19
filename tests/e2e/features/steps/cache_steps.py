@@ -8,31 +8,38 @@ helpers that require direct access to the REST API and filesystem.
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 import httpx
 from behave import given, then, when
 
 
-def _transport(context) -> httpx.HTTPTransport:
+@contextlib.contextmanager
+def _rest_client(context):
+    """Yield a REST client scoped to one operation.
+
+    In-process mode: yields ``context.server_client`` (managed externally).
+    UDS mode: creates a single ``httpx.Client`` and closes it on exit so
+    sockets and file descriptors are not leaked.
+    """
     if hasattr(context, "server_client"):
-        return context.server_client
-    socket_path = str(context.project_dir / ".guru" / "guru.sock")
-    return httpx.HTTPTransport(uds=socket_path)
+        yield context.server_client
+    else:
+        socket_path = str(context.project_dir / ".guru" / "guru.sock")
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=socket_path), timeout=5.0
+        ) as client:
+            yield client
 
 
 def _latest_completed_job(context) -> dict | None:
     """Fetch the most recently-completed job via the REST API."""
-    transport = _transport(context)
-    if hasattr(context, "server_client"):
-        resp = transport.get("/status")
+    url = "/status" if hasattr(context, "server_client") else "http://localhost/status"
+    with _rest_client(context) as client:
+        resp = client.get(url)
         assert resp.status_code == 200, f"GET /status failed: {resp.status_code}"
         data = resp.json()
-    else:
-        with httpx.Client(transport=transport, timeout=5.0) as client:
-            resp = client.get("http://localhost/status")
-            assert resp.status_code == 200, f"GET /status failed: {resp.status_code}"
-            data = resp.json()
 
     # Extract last_job_* counters from the cache block — populated by
     # guru_server/api/cache.py::_assemble_stats from the registry

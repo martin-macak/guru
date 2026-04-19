@@ -97,13 +97,37 @@ def _neo4j_wipe() -> None:
 def _neo4j_stop() -> None:
     global _neo4j_runtime
 
-    from guru_graph.neo4j_process import stop_neo4j
+    import os
+    import signal
+    import subprocess
 
     if _neo4j_runtime is None:
         return
 
-    stop_neo4j(_neo4j_runtime.process)
+    proc = _neo4j_runtime.process
     _neo4j_runtime = None
+
+    if proc.poll() is not None:
+        return
+
+    # start_neo4j uses start_new_session=True, so proc.pid is the process
+    # group leader.  Kill the whole group to ensure the JVM child process
+    # spawned by "neo4j console" is also terminated.
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        # Fallback: process is no longer a group leader (already exited or
+        # re-parented), or we lack permission — signal the parent directly.
+        proc.send_signal(signal.SIGTERM)
+
+    try:
+        proc.wait(timeout=15.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        proc.wait()
 
 
 # --- ollama capability ------------------------------------------------------
