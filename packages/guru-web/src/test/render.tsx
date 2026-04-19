@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render as rtlRender } from "@testing-library/react";
 import type { RenderOptions, RenderResult } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
-import type { Location, ReactElement } from "react";
+import type { ReactElement } from "react";
 
 export * from "@testing-library/react";
 export { render } from "@testing-library/react";
