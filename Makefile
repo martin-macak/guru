@@ -13,6 +13,12 @@ help:
 	@echo "Setup"
 	@echo "  install            Install all workspace packages (uv sync --all-packages)"
 	@echo ""
+	@echo "Development"
+	@echo "  dev                Run dev-server and dev-web together (Ctrl-C to stop)"
+	@echo "  dev-server         Run guru-server with hot-reload on :$$GURU_DEV_PORT"
+	@echo "  dev-web            Run Vite dev server on :5173 (proxies to dev-server)"
+	@echo "                     Override port: make dev GURU_DEV_PORT=9000"
+	@echo ""
 	@echo "Testing"
 	@echo "  test               Unit + integration tests (fast, no e2e)"
 	@echo "  test-unit          Unit tests across all packages"
@@ -43,6 +49,25 @@ help:
 .PHONY: install
 install:
 	uv sync --all-packages
+
+# ─── Development ─────────────────────────────────────────────────────────────
+
+GURU_DEV_PORT ?= 8765
+
+.PHONY: dev-server
+dev-server:
+	GURU_DEV_PORT=$(GURU_DEV_PORT) uv run guru-server-dev
+
+.PHONY: dev-web
+dev-web:
+	cd packages/guru-web && GURU_DEV_PORT=$(GURU_DEV_PORT) npm run dev
+
+.PHONY: dev
+dev:
+	@trap 'kill 0' EXIT INT TERM; \
+	$(MAKE) dev-server & \
+	$(MAKE) dev-web & \
+	wait
 
 # ─── Testing ─────────────────────────────────────────────────────────────────
 
