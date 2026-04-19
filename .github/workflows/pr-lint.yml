@@ -1,0 +1,127 @@
+name: Lint PR
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - edited
+      - synchronize
+      - labeled
+      - unlabeled
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Validate PR title against Conventional Commits and auto-fix common issues
+  # ---------------------------------------------------------------------------
+  validate-pr-title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        id: lint_pr_title
+        uses: amannn/action-semantic-pull-request@v6
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Types must match the project's naming conventions (see AGENTS.md).
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            test
+            perf
+            ci
+          requireScope: false
+          # Subject must not start with an uppercase character.
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            must not start with an uppercase character.
+          # Allow [WIP] prefix to keep PR checks pending.
+          wip: true
+          # Skip validation for bot PRs or explicitly ignored PRs.
+          ignoreLabels: |
+            bot
+            ignore-semantic-pull-request
+
+      # Auto-fix: lowercase the type prefix when it is the only formatting issue
+      # (e.g. "FEAT: add widget" → "feat: add widget").
+      - name: Auto-fix PR title
+        if: steps.lint_pr_title.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Lowercase the type portion (before the colon) if it is all-uppercase.
+          FIXED=$(printf '%s' "$PR_TITLE" | \
+            sed -E 's/^([A-Z]+)(\([^)]*\))?(!)?: /\L\1\2\3: /')
+          if [ "$PR_TITLE" != "$FIXED" ]; then
+            echo "Auto-fixing PR title:"
+            echo "  before: $PR_TITLE"
+            echo "  after:  $FIXED"
+            gh pr edit "$PR_NUMBER" --title "$FIXED"
+          fi
+
+      # Post a sticky comment explaining the error when the title is invalid.
+      - name: Comment with validation error
+        if: always() && steps.lint_pr_title.outputs.error_message != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint-error
+          message: |
+            Thank you for opening this pull request! 👋
+
+            We require pull request titles to follow the [Conventional Commits specification](https://www.conventionalcommits.org/en/v1.0.0/). Your proposed title needs to be adjusted.
+
+            **Details:**
+            ```
+            ${{ steps.lint_pr_title.outputs.error_message }}
+            ```
+
+            **Allowed types:** `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `ci`
+
+            **Valid formats:**
+            - `feat: add new feature`
+            - `fix(scope): correct typo`
+            - `refactor!: drop support for Node 18`
+
+      # Remove the sticky comment once the title is valid.
+      - name: Delete error comment when resolved
+        if: always() && steps.lint_pr_title.outputs.error_message == ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-title-lint-error
+          delete: true
+
+  # ---------------------------------------------------------------------------
+  # Auto-label PRs based on the Conventional Commits type in the title
+  # ---------------------------------------------------------------------------
+  label-pr:
+    name: Label PR by type
+    runs-on: ubuntu-latest
+    steps:
+      - name: PR Conventional Commits – label by type
+        uses: ytanikin/PRConventionalCommits@1.1.0
+        with:
+          task_types: '["feat","fix","docs","chore","refactor","test","perf","ci"]'
+          add_label: 'true'
+          custom_labels: >-
+            {
+              "feat":     "feature",
+              "fix":      "fix",
+              "docs":     "docs",
+              "chore":    "chore",
+              "refactor": "refactor",
+              "test":     "test",
+              "perf":     "performance",
+              "ci":       "ci"
+            }
