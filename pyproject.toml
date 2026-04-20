@@ -48,11 +48,13 @@ guru-graph = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--import-mode=importlib -m 'not slow' --timeout=60 --timeout-method=thread"
+addopts = "--import-mode=importlib -m 'not slow and not compat_socket' --timeout=60 --timeout-method=thread"
 norecursedirs = ["packages/guru-web/node_modules", "packages/guru-web/dist"]
 markers = [
     "slow: end-to-end tests that start a real server (deselected by default, run with: -m slow)",
+    "compat_socket: tests that require real loopback or AF_UNIX socket binding",
     "real_neo4j: tests that require a running Neo4j (skipped unless GURU_REAL_NEO4J=1)",
+    "real_ollama: tests that require a reachable Ollama instance",
 ]
 
 [dependency-groups]

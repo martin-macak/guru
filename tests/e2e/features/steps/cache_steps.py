@@ -8,21 +8,36 @@ helpers that require direct access to the REST API and filesystem.
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 import httpx
 from behave import given, then, when
 
 
-def _transport(context) -> httpx.HTTPTransport:
-    socket_path = str(context.project_dir / ".guru" / "guru.sock")
-    return httpx.HTTPTransport(uds=socket_path)
+@contextlib.contextmanager
+def _rest_client(context):
+    """Yield a REST client scoped to one operation.
+
+    In-process mode: yields ``context.server_client`` (managed externally).
+    UDS mode: creates a single ``httpx.Client`` and closes it on exit so
+    sockets and file descriptors are not leaked.
+    """
+    if hasattr(context, "server_client"):
+        yield context.server_client
+    else:
+        socket_path = str(context.project_dir / ".guru" / "guru.sock")
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=socket_path), timeout=5.0
+        ) as client:
+            yield client
 
 
 def _latest_completed_job(context) -> dict | None:
     """Fetch the most recently-completed job via the REST API."""
-    with httpx.Client(transport=_transport(context), timeout=5.0) as client:
-        resp = client.get("http://localhost/status")
+    url = "/status" if hasattr(context, "server_client") else "http://localhost/status"
+    with _rest_client(context) as client:
+        resp = client.get(url)
         assert resp.status_code == 200, f"GET /status failed: {resp.status_code}"
         data = resp.json()
 
@@ -76,7 +91,7 @@ def step_run_index_and_wait(context):
     """Trigger indexing via REST and wait for the job to finish."""
     from environment import _trigger_and_wait_index
 
-    context.last_job_detail = _trigger_and_wait_index(context.project_dir)
+    context.last_job_detail = _trigger_and_wait_index(context)
 
 
 def _last_job_counters(context) -> tuple[int, int]:

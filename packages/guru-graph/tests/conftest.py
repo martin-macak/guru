@@ -12,8 +12,8 @@ def pytest_collection_modifyitems(config, items):
 
     Mirrors the existing @real_ollama opt-in pattern. Even with a neo4j
     binary on PATH, subprocess startup needs a properly-staged install whose
-    conf paths are writable — CI handles that via a docker service; local
-    devs opt in when they have a suitable Neo4j reachable.
+    conf paths are writable. CI handles that by installing native Neo4j;
+    local devs opt in when they have a suitable Neo4j reachable.
     """
     if os.environ.get("GURU_REAL_NEO4J") == "1":
         return
@@ -28,7 +28,7 @@ def real_neo4j_backend(tmp_path: Path):
     """Real Neo4j backend for @real_neo4j tests.
 
     If `GURU_NEO4J_BOLT_URI` is set, connect-only mode is used (CI + any
-    docker-based setup). Otherwise fall back to subprocess mode, which
+    externally managed setup). Otherwise fall back to subprocess mode, which
     requires a `neo4j` binary on PATH whose conf we can override.
     """
     from guru_graph.backend import Neo4jBackend

@@ -2,7 +2,8 @@
 
 These are pure unit tests (NOT @real_neo4j) — they verify the architectural
 contract that when a bolt_uri is supplied, Neo4jBackend MUST NOT spawn a
-neo4j subprocess. The CI path (docker service container) depends on this
+neo4j subprocess. The CI path (native test Neo4j or any other external
+instance) depends on this
 contract.
 """
 

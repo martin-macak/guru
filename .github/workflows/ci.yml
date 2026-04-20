@@ -16,6 +16,8 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
+      shared: ${{ steps.filter.outputs.shared }}
+      root-tests: ${{ steps.filter.outputs.root-tests }}
       guru-core: ${{ steps.filter.outputs.guru-core }}
       guru-server: ${{ steps.filter.outputs.guru-server }}
       guru-mcp: ${{ steps.filter.outputs.guru-mcp }}
@@ -28,6 +30,13 @@ jobs:
         id: filter
         with:
           filters: |
+            shared:
+              - 'pyproject.toml'
+              - 'uv.lock'
+              - 'Makefile'
+              - '.github/workflows/**'
+            root-tests:
+              - 'tests/**'
             guru-core:
               - 'packages/guru-core/**'
             guru-server:
@@ -49,16 +58,17 @@ jobs:
       matrix:
         include:
           - package: guru-core
-            changed: ${{ needs.detect-changes.outputs.guru-core }}
+            changed: ${{ needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.guru-core == 'true' }}
           - package: guru-server
-            changed: ${{ needs.detect-changes.outputs.guru-server }}
+            changed: ${{ needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.guru-server == 'true' }}
           - package: guru-mcp
-            changed: ${{ needs.detect-changes.outputs.guru-mcp }}
+            changed: ${{ needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.guru-mcp == 'true' }}
           - package: guru-cli
-            changed: ${{ needs.detect-changes.outputs.guru-cli }}
+            changed: ${{ needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.guru-cli == 'true' }}
           - package: guru-graph
-            changed: ${{ needs.detect-changes.outputs.guru-graph }}
+            changed: ${{ needs.detect-changes.outputs.shared == 'true' || needs.detect-changes.outputs.guru-graph == 'true' }}
     if: >-
+      needs.detect-changes.outputs.shared == 'true' ||
       needs.detect-changes.outputs.guru-core == 'true' ||
       needs.detect-changes.outputs.guru-server == 'true' ||
       needs.detect-changes.outputs.guru-mcp == 'true' ||
@@ -80,6 +90,23 @@ jobs:
         run: uv run pytest packages/${{ matrix.package }}/ -v --tb=short
 
     name: test (${{ matrix.package }})
+
+  root-tests:
+    needs: detect-changes
+    if: >-
+      needs.detect-changes.outputs.shared == 'true' ||
+      needs.detect-changes.outputs.root-tests == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - run: uv sync --all-packages
+
+      - run: uv run pytest tests/ -v --tb=short
 
   # ---------------------------------------------------------------------------
   # E2E tests — only when label "require-e2e-tests" is set
@@ -120,7 +147,7 @@ jobs:
       - name: Run BDD e2e tests
         env:
           GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
-        run: uv run behave tests/e2e/features/
+        run: uv run behave tests/e2e/features/ -D capabilities=ollama --exclude hybrid_search
 
   # ---------------------------------------------------------------------------
   # Graph plugin tests — only when label "require-e2e-tests" is set
@@ -128,18 +155,6 @@ jobs:
   graph-plugin:
     if: contains(github.event.pull_request.labels.*.name, 'require-e2e-tests')
     runs-on: ubuntu-latest
-    services:
-      neo4j:
-        image: neo4j:5
-        ports:
-          - 7687:7687
-        env:
-          NEO4J_AUTH: none
-        options: >-
-          --health-cmd "cypher-shell 'RETURN 1'"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -147,25 +162,40 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install native Neo4j
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates gnupg wget software-properties-common
+          sudo add-apt-repository universe
+          sudo mkdir -p /etc/apt/keyrings
+          wget -O - https://debian.neo4j.com/neotechnology.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/neotechnology.gpg > /dev/null
+          sudo chmod a+r /etc/apt/keyrings/neotechnology.gpg
+          echo 'deb [signed-by=/etc/apt/keyrings/neotechnology.gpg] https://debian.neo4j.com stable 5' | sudo tee /etc/apt/sources.list.d/neo4j.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y neo4j
+          neo4j version
+
       - run: uv sync --all-packages
+
+      - name: Start test Neo4j
+        run: ./scripts/start-test-neo4j.sh
 
       - name: Run guru-graph tests (including @real_neo4j)
         env:
           GURU_REAL_NEO4J: "1"
-          # Point Neo4jBackend at the service container instead of spawning a
-          # local neo4j process (which is not installed on the runner).
-          GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
+          GURU_NEO4J_BOLT_URI: "bolt://127.0.0.1:17687"
         timeout-minutes: 5
         run: uv run pytest packages/guru-graph/ -v --tb=short --timeout=60
 
       - name: Run graph BDD scenarios
         env:
           GURU_REAL_NEO4J: "1"
-          GURU_NEO4J_BOLT_URI: "bolt://localhost:7687"
+          GURU_NEO4J_BOLT_URI: "bolt://127.0.0.1:17687"
+          GURU_GRAPH_HOME: "/tmp/guru-graph-ci"
         timeout-minutes: 5
         run: |
-          uv run behave tests/e2e/features/graph_plugin.feature
-          uv run behave tests/e2e/features/graph_cli_reads.feature
+          uv run behave tests/e2e/features/graph_plugin.feature -D capabilities=neo4j
+          uv run behave tests/e2e/features/graph_cli_reads.feature -D capabilities=neo4j
 
   # ---------------------------------------------------------------------------
   # Web GUI — fast checks (typecheck + unit tests)

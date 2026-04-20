@@ -2,40 +2,58 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 
 import httpx
 from behave import then, when
 
 
-def _http_client(context):
-    socket_path = str(context.project_dir / ".guru" / "guru.sock")
-    transport = httpx.HTTPTransport(uds=socket_path)
-    return httpx.Client(transport=transport, timeout=30.0)
+def _url(context, path: str) -> str:
+    """Return the correct URL for *path* depending on whether we're in-process."""
+    return path if hasattr(context, "server_client") else f"http://localhost{path}"
+
+
+@contextlib.contextmanager
+def _rest_client(context):
+    """Yield a REST client scoped to one operation.
+
+    In-process mode: yields ``context.server_client`` (managed externally).
+    UDS mode: creates a single ``httpx.Client`` and closes it on exit so
+    sockets and file descriptors are not leaked.
+    """
+    if hasattr(context, "server_client"):
+        yield context.server_client
+    else:
+        socket_path = str(context.project_dir / ".guru" / "guru.sock")
+        with httpx.Client(
+            transport=httpx.HTTPTransport(uds=socket_path), timeout=30.0
+        ) as client:
+            yield client
 
 
 def _wait_for_index(context, timeout=30.0):
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        with _http_client(context) as client:
-            resp = client.get("http://localhost/status")
+    # Create a single client for the whole polling loop (avoids per-iteration leaks).
+    with _rest_client(context) as client:
+        while time.monotonic() < deadline:
+            resp = client.get(_url(context, "/status"))
             data = resp.json()
             if data.get("current_job") is None:
-                # Get the most recent job detail
                 if hasattr(context, "last_job_id") and context.last_job_id:
-                    resp = client.get(f"http://localhost/jobs/{context.last_job_id}")
+                    resp = client.get(_url(context, f"/jobs/{context.last_job_id}"))
                     context.last_job = resp.json()
                 return
-        time.sleep(0.3)
+            time.sleep(0.3)
     raise RuntimeError("Index did not complete within timeout")
 
 
 @when("I trigger indexing via REST API")
 def step_trigger_index(context):
-    with _http_client(context) as client:
-        resp = client.post("http://localhost/index", json={})
-        context.index_response = resp.json()
-        context.last_job_id = context.index_response.get("job_id")
+    with _rest_client(context) as client:
+        resp = client.post(_url(context, "/index"), json={})
+    context.index_response = resp.json()
+    context.last_job_id = context.index_response.get("job_id")
 
 
 @when("I trigger indexing via REST API again")
@@ -46,9 +64,9 @@ def step_trigger_index_again(context):
 @when("I immediately trigger indexing again")
 def step_trigger_index_immediately(context):
     """Trigger a second index immediately (for concurrency guard test)."""
-    with _http_client(context) as client:
-        resp = client.post("http://localhost/index", json={})
-        context.second_index_response = resp.json()
+    with _rest_client(context) as client:
+        resp = client.post(_url(context, "/index"), json={})
+    context.second_index_response = resp.json()
 
 
 @when("I wait for the index job to complete")
@@ -131,10 +149,10 @@ def step_both_have_job_id(context):
 
 @then("I can retrieve the job detail via REST API")
 def step_get_job_detail(context):
-    with _http_client(context) as client:
-        resp = client.get(f"http://localhost/jobs/{context.last_job_id}")
-        assert resp.status_code == 200
-        context.job_detail = resp.json()
+    with _rest_client(context) as client:
+        resp = client.get(_url(context, f"/jobs/{context.last_job_id}"))
+    assert resp.status_code == 200
+    context.job_detail = resp.json()
 
 
 @then('the job detail contains job_type "{expected}"')
@@ -154,9 +172,7 @@ def step_job_detail_finished_at(context):
 
 @then("the server status has current_job as null")
 def step_status_no_current_job(context):
-    with _http_client(context) as client:
-        resp = client.get("http://localhost/status")
-        data = resp.json()
-        assert data["current_job"] is None, (
-            f"Expected null current_job but got {data['current_job']}"
-        )
+    with _rest_client(context) as client:
+        resp = client.get(_url(context, "/status"))
+    data = resp.json()
+    assert data["current_job"] is None, f"Expected null current_job but got {data['current_job']}"

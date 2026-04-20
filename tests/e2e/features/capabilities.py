@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import contextlib
 import os
-import subprocess
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+_TEST_NEO4J_PORT = 17687
+_TEST_NEO4J_HOME = Path(tempfile.gettempdir()) / "guru-graph-test-neo4j"
+_neo4j_runtime = None
 
 
 @dataclass
@@ -54,8 +57,23 @@ class Capability:
 
 
 def _neo4j_start() -> None:
-    script = REPO_ROOT / "scripts" / "start-test-neo4j.sh"
-    subprocess.run([str(script)], check=True)
+    global _neo4j_runtime
+
+    from guru_graph.neo4j_process import start_neo4j
+    from guru_graph.preflight import check_java_installed, check_neo4j_installed
+
+    if _neo4j_runtime is not None:
+        return
+
+    check_java_installed()
+    check_neo4j_installed()
+
+    _TEST_NEO4J_HOME.mkdir(parents=True, exist_ok=True)
+    _neo4j_runtime = start_neo4j(
+        data_dir=_TEST_NEO4J_HOME / "data",
+        bolt_port=_TEST_NEO4J_PORT,
+        log_file=_TEST_NEO4J_HOME / "neo4j.log",
+    )
 
 
 def _neo4j_wipe() -> None:
@@ -77,12 +95,39 @@ def _neo4j_wipe() -> None:
 
 
 def _neo4j_stop() -> None:
-    subprocess.run(
-        ["docker", "rm", "-f", "guru-graph-test-neo4j"],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    global _neo4j_runtime
+
+    import os
+    import signal
+    import subprocess
+
+    if _neo4j_runtime is None:
+        return
+
+    proc = _neo4j_runtime.process
+    _neo4j_runtime = None
+
+    if proc.poll() is not None:
+        return
+
+    # start_neo4j uses start_new_session=True, so proc.pid is the process
+    # group leader.  Kill the whole group to ensure the JVM child process
+    # spawned by "neo4j console" is also terminated.
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        # Fallback: process is no longer a group leader (already exited or
+        # re-parented), or we lack permission — signal the parent directly.
+        proc.send_signal(signal.SIGTERM)
+
+    try:
+        proc.wait(timeout=15.0)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            proc.kill()
+        proc.wait()
 
 
 # --- ollama capability ------------------------------------------------------
@@ -108,7 +153,7 @@ _REGISTRY: dict[str, Capability] = {
         tag="real_neo4j",
         env={
             "GURU_REAL_NEO4J": "1",
-            "GURU_NEO4J_BOLT_URI": "bolt://127.0.0.1:17687",
+            "GURU_NEO4J_BOLT_URI": f"bolt://127.0.0.1:{_TEST_NEO4J_PORT}",
         },
         external_uri_env="GURU_NEO4J_BOLT_URI",
         start=_neo4j_start,

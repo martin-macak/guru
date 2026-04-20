@@ -120,8 +120,8 @@ class Neo4jBackend:
       ``neo4j`` binary on PATH and a writable conf dir).
     - **connect-only mode**: ``bolt_uri`` is set. ``start()`` connects to an
       already-running Neo4j at that URI and never touches a subprocess. This
-      is what CI uses with its ``neo4j:5`` service container and what any
-      docker-based local-dev setup should use.
+      is what CI uses after provisioning a native test Neo4j and what any
+      externally managed local-dev setup should use.
     """
 
     def __init__(
